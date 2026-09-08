@@ -20,6 +20,7 @@ export default function SettingsPage() {
   const [defaultStartTime, setDefaultStartTime] = useState('08:30')
   const [defaultEndTime, setDefaultEndTime] = useState('17:30')
   const [lateBufferMinutes, setLateBufferMinutes] = useState(15)
+  const [lateDeduction, setLateDeduction] = useState(0)
   const [shifts, setShifts] = useState<any[]>([])
   const [isSavingSettings, setIsSavingSettings] = useState(false)
 
@@ -29,6 +30,7 @@ export default function SettingsPage() {
     start_time: '08:00',
     end_time: '17:00',
     late_buffer_minutes: 10,
+    late_deduction_per_minute: 0,
   })
 
   // --- 3. Holiday Calendar State ---
@@ -71,6 +73,7 @@ export default function SettingsPage() {
       setDefaultStartTime(data.default_start_time?.substring(0, 5) || '08:30')
       setDefaultEndTime(data.default_end_time?.substring(0, 5) || '17:30')
       setLateBufferMinutes(data.late_buffer_minutes || 0)
+      setLateDeduction(data.late_deduction_per_minute || 0)
     }
   }
 
@@ -93,6 +96,7 @@ export default function SettingsPage() {
       default_start_time: defaultStartTime,
       default_end_time: defaultEndTime,
       late_buffer_minutes: lateBufferMinutes,
+      late_deduction_per_minute: lateDeduction,
       updated_at: new Date().toISOString(),
     })
 
@@ -108,7 +112,14 @@ export default function SettingsPage() {
     const { error } = await supabase.from('work_shifts').insert([newShift])
     if (error) alert('เกิดข้อผิดพลาด: ' + error.message)
     else {
-      setNewShift({ shift_name: '', start_time: '08:00', end_time: '17:00', late_buffer_minutes: 10 })
+      // เพิ่ม late_deduction_per_minute: 0 เข้าไปในวัตถุเพื่อเคลียร์ค่าฟอร์ม
+      setNewShift({ 
+        shift_name: '', 
+        start_time: '08:00', 
+        end_time: '17:00', 
+        late_buffer_minutes: 10,
+        late_deduction_per_minute: 0 
+      })
       fetchShifts()
     }
   }
@@ -251,7 +262,8 @@ export default function SettingsPage() {
             {!hasShifts ? (
               <div className="bg-slate-50 p-5 rounded-xl border border-slate-200 space-y-4">
                 <h3 className="font-bold text-xs text-slate-500 uppercase tracking-wider">ตั้งค่าเวลาทำงานปกติ</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* เปลี่ยนจาก md:grid-cols-3 เป็น md:grid-cols-4 */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                   <div>
                     <label className="block text-xs font-semibold text-slate-600 mb-1">เวลาเข้างานมาตรฐาน</label>
                     <input
@@ -271,7 +283,7 @@ export default function SettingsPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">อนุญาตให้เข้าสายได้ไม่เกิน (นาที)</label>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">อนุญาตให้เข้าสายได้ (นาที)</label>
                     <input
                       type="number"
                       min="0"
@@ -279,7 +291,19 @@ export default function SettingsPage() {
                       value={lateBufferMinutes}
                       onChange={(e) => setLateBufferMinutes(Number(e.target.value))}
                     />
-                    <span className="text-[11px] text-slate-400 mt-1 block">เช่น 15 นาที (เข้างานหลัง 08:45 น. ถือว่าสาย)</span>
+                    <span className="text-[11px] text-slate-400 mt-1 block">ยืดหยุ่นสายได้ไม่โดนหัก</span>
+                  </div>
+                  {/* ช่องกรอกอัตราหักเงินที่เพิ่มเข้ามาใหม่ */}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">หักเงินสาย (บาท/นาที)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      className="w-full p-2.5 border border-rose-300 bg-rose-50 rounded-lg text-sm outline-none focus:ring-2 focus:ring-rose-500 text-rose-700 font-bold"
+                      value={lateDeduction}
+                      onChange={(e) => setLateDeduction(Number(e.target.value))}
+                    />
+                    <span className="text-[11px] text-rose-500 mt-1 block">ตัวอย่าง: นาทีละ 5 บาท</span>
                   </div>
                 </div>
               </div>
