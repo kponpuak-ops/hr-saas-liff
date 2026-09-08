@@ -7,12 +7,17 @@ import Link from 'next/link'
 
 export default function LeaveHistoryPage() {
   const [leaves, setLeaves] = useState<any[]>([])
+  const [leaveTypes, setLeaveTypes] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [errorMsg, setErrorMsg] = useState('')
 
   useEffect(() => {
     const initData = async () => {
       try {
+        // 1. ดึงประเภทการลาเพื่อเอาโควต้าสิทธิ์การลา
+        const { data: typeData } = await supabase.from('leave_types').select('*')
+        if (typeData) setLeaveTypes(typeData)
+
         await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID! })
         if (!liff.isLoggedIn()) {
           liff.login()
@@ -21,7 +26,7 @@ export default function LeaveHistoryPage() {
 
         const profile = await liff.getProfile()
 
-        // 1. หา User ID จาก LINE
+        // 2. หา User ID จาก LINE
         const { data: userData } = await supabase
           .from('users')
           .select('id')
@@ -34,7 +39,7 @@ export default function LeaveHistoryPage() {
           return
         }
 
-        // 2. ดึงประวัติการลาของพนักงานคนนี้
+        // 3. ดึงประวัติการลาของพนักงานคนนี้
         const { data: leaveData, error } = await supabase
           .from('leaves')
           .select('*')
@@ -53,6 +58,33 @@ export default function LeaveHistoryPage() {
     
     initData()
   }, [])
+
+  // ฟังก์ชันคำนวณสรุปโควต้าวันลา
+  const calculateLeaveStats = () => {
+    // สร้างตัวแปรตั้งต้นจากประเภทการลา
+    const stats = leaveTypes.map(type => ({
+      name: type.name,
+      max: type.max_paid_days,
+      used: 0
+    }))
+
+    // วนลูปนับจำนวนวันที่ลาไปแล้ว (นับเฉพาะที่อนุมัติ)
+    leaves.forEach(leave => {
+      if (leave.status === 'approved') {
+        const statIndex = stats.findIndex(s => s.name === leave.leave_type)
+        if (statIndex !== -1) {
+          const start = new Date(leave.start_date)
+          const end = new Date(leave.end_date)
+          // คำนวณจำนวนวัน (บวก 1 เพื่อให้นับรวมวันแรกด้วย)
+          const diffTime = Math.abs(end.getTime() - start.getTime())
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1 
+          stats[statIndex].used += diffDays
+        }
+      }
+    })
+
+    return stats
+  }
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -74,6 +106,8 @@ export default function LeaveHistoryPage() {
     return <div className="min-h-screen bg-slate-50 flex items-center justify-center text-slate-500 font-medium">กำลังโหลดประวัติการลา...</div>
   }
 
+  const leaveStats = calculateLeaveStats()
+
   return (
     <div className="min-h-screen bg-slate-50 p-4 font-sans pb-8">
       <div className="max-w-md mx-auto space-y-4">
@@ -86,6 +120,23 @@ export default function LeaveHistoryPage() {
             กลับหน้าหลัก
           </Link>
         </div>
+
+        {/* สรุปโควต้าวันลา (แสดงเมื่อโหลดข้อมูลเสร็จและไม่มี Error) */}
+        {!errorMsg && leaveTypes.length > 0 && (
+          <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+            <h2 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">📊 สรุปสิทธิ์การลา (ที่อนุมัติแล้ว)</h2>
+            <div className="grid grid-cols-2 gap-2">
+              {leaveStats.filter(s => s.max > 0).map((stat, idx) => ( // กรองเอาเฉพาะอันที่มีโควต้า > 0
+                <div key={idx} className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-center flex flex-col justify-center">
+                  <div className="text-xs font-bold text-slate-500 mb-1">{stat.name}</div>
+                  <div className="text-lg font-extrabold text-indigo-600">
+                    {stat.used} <span className="text-xs font-medium text-slate-400">/ {stat.max === 999 ? '∞' : stat.max} วัน</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {errorMsg ? (
           <div className="bg-rose-50 text-rose-600 p-4 rounded-2xl text-center text-sm font-bold border border-rose-100">
