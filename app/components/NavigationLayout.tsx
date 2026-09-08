@@ -67,6 +67,13 @@ export default function NavigationLayout({ children }: { children: React.ReactNo
           >
             <span className="text-xl">📅</span> ประวัติลงเวลา
           </Link>
+          {/* เพิ่มเมนูนี้ลงไปครับ */}
+        <Link 
+          href="/settings" 
+          className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium ${pathname === '/settings' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+        >
+          <span className="text-xl">⚙️</span> ตั้งค่าองค์กร
+        </Link>
         </nav>
         
         {/* ส่วนปุ่มออกจากระบบด้านล่างสุด */}
