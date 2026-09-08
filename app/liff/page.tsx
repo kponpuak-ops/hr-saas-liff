@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
 import liff from '@line/liff'
+import Link from 'next/link' // เพิ่มการใช้งาน Link
 
 export default function LiffAttendancePage() {
   const [loading, setLoading] = useState(true)
@@ -268,21 +269,19 @@ export default function LiffAttendancePage() {
         </div>
 
         {/* เมนูลัด (Quick Actions) */}
-        <div className="mt-4 grid grid-cols-2 gap-3">
-          <button
-            onClick={() => window.location.href = '/liff/leave'}
-            className="p-4 bg-white border border-slate-200 rounded-2xl text-slate-700 font-bold text-sm shadow-sm hover:bg-slate-50 flex flex-col items-center gap-2 transition-colors"
-          >
+        <div className="mt-4 grid grid-cols-3 gap-3">
+          <Link className="p-4 bg-white border border-slate-200 rounded-2xl text-slate-700 font-bold text-sm shadow-sm hover:bg-slate-50 flex flex-col items-center gap-2 transition-colors" href="/liff/leave">
             <span className="text-2xl">📝</span>
-            ยื่นใบลา
-          </button>
-          <button
-            onClick={() => window.location.href = '/liff/history'}
-            className="p-4 bg-white border border-slate-200 rounded-2xl text-slate-700 font-bold text-sm shadow-sm hover:bg-slate-50 flex flex-col items-center gap-2 transition-colors"
-          >
+            <span className="text-xs">ยื่นใบลา</span>
+          </Link>
+          <Link className="p-4 bg-white border border-slate-200 rounded-2xl text-slate-700 font-bold text-sm shadow-sm hover:bg-slate-50 flex flex-col items-center gap-2 transition-colors" href="/liff/history">
             <span className="text-2xl">📋</span>
-            ประวัติการลา
-          </button>
+            <span className="text-xs text-center">ประวัติการลา</span>
+          </Link>
+          <Link className="p-4 bg-white border border-slate-200 rounded-2xl text-slate-700 font-bold text-sm shadow-sm hover:bg-slate-50 flex flex-col items-center gap-2 transition-colors" href="/liff/ot">
+            <span className="text-2xl">⏱️</span>
+            <span className="text-xs text-center">ยื่นขอ OT</span>
+          </Link>
         </div>
       </div>
 
