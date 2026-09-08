@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
+import liff from '@line/liff'
 
 export default function LiffAttendancePage() {
   const [loading, setLoading] = useState(true)
@@ -24,7 +25,17 @@ export default function LiffAttendancePage() {
   const initLiffData = async () => {
     setLoading(true)
     try {
-      // 1. ดึงการตั้งค่าบริษัท
+      // 1. เริ่มทำงาน LIFF และเช็กการล็อกอิน LINE
+      await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID || '' })
+      if (!liff.isLoggedIn()) {
+        liff.login()
+        return
+      }
+
+      // 2. ดึง LINE Profile ของผู้ใช้งานปัจจุบัน
+      const profile = await liff.getProfile()
+
+      // 3. ดึงการตั้งค่าบริษัท
       const { data: settings } = await supabase
         .from('company_settings')
         .select('has_shifts')
@@ -34,7 +45,7 @@ export default function LiffAttendancePage() {
       const isShiftEnabled = settings?.has_shifts ?? false
       setHasShifts(isShiftEnabled)
 
-      // 2. ถ้าเปิดระบบกะ ให้ดึงรายการกะทั้งหมดมาเตรียมไว้
+      // 4. ถ้าเปิดระบบกะ ให้ดึงรายการกะทั้งหมดมาเตรียมไว้
       if (isShiftEnabled) {
         const { data: shiftData } = await supabase
           .from('work_shifts')
@@ -43,21 +54,25 @@ export default function LiffAttendancePage() {
 
         if (shiftData && shiftData.length > 0) {
           setShifts(shiftData)
-          setSelectedShiftId(shiftData[0].id) // เลือกกะแรกเป็นค่าเริ่มต้น
+          setSelectedShiftId(shiftData[0].id)
         }
       }
 
-      // 3. ดึงข้อมูลพนักงาน (จำลองดึงพนักงานคนแรก หรือใช้จาก LINE Profile)
+      // 5. ค้นหาข้อมูลพนักงานในตาราง users ผ่าน line_user_id จริง
       const { data: userData } = await supabase
         .from('users')
         .select('*')
-        .limit(1)
-        .single()
+        .eq('line_user_id', profile.userId)
+        .maybeSingle()
 
-      if (userData) {
-        setUser(userData)
-        await checkAttendanceStatus(userData.id, isShiftEnabled)
+      // 🛑 ถ้าไม่พบข้อมูลพนักงาน (ยังไม่ได้ผูก LINE) -> ส่งไปหน้า /bind ทันที
+      if (!userData) {
+        window.location.href = '/bind'
+        return
       }
+
+      setUser(userData)
+      await checkAttendanceStatus(userData.id, isShiftEnabled)
     } catch (err: any) {
       console.error('Error loading LIFF:', err.message)
     } finally {
@@ -146,8 +161,6 @@ export default function LiffAttendancePage() {
     try {
       const now = new Date()
 
-      // 1. ถ้ามี id ใน activeRecord ให้ใช้ id
-      // 2. ถ้าไม่มี id ให้ใช้ user_id + check_out_time is null เป็นตัวค้นหาแทน
       let query = supabase
         .from('attendance')
         .update({ check_out_time: now.toISOString() })
@@ -194,7 +207,7 @@ export default function LiffAttendancePage() {
             </div>
             <div>
               <h1 className="text-lg font-bold">{user?.first_name} {user?.last_name}</h1>
-              <p className="text-xs text-indigo-100">{user?.position || 'พนักงาน'} • {user?.department || 'องค์กร'}</p>
+              <p className="text-xs text-indigo-100">{user?.position || 'พนักงาน'} • ID: {user?.employee_id || '-'}</p>
             </div>
           </div>
         </div>
