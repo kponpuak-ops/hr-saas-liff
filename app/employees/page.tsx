@@ -653,13 +653,14 @@ export default function EmployeesPage() {
           <table className="w-full text-left border-collapse whitespace-nowrap">
             <thead>
               <tr className="border-b border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-wider">
-                <th className="pb-3">พนักงาน</th>
-                <th className="pb-3">แผนก / ตำแหน่ง</th>
+                <th className="pb-3 min-w-[200px]">พนักงาน</th>
+                <th className="pb-3 min-w-[150px]">แผนก / ตำแหน่ง</th>
                 <th className="pb-3 text-center">ประเภทการจ้างงาน</th>
                 <th className="pb-3 text-right">ฐานเงินเดือน / ค่าจ้าง</th>
-                <th className="pb-3">สวัสดิการ</th>
-                <th className="pb-3">สถานะ LINE</th>
-                <th className="pb-3 text-right">จัดการ</th>
+                <th className="pb-3 min-w-[150px]">สวัสดิการ</th>
+                {/* ปรับให้จัดกึ่งกลางและล็อกความกว้าง */}
+                <th className="pb-3 text-center w-28">สถานะ LINE</th>
+                <th className="pb-3 text-center w-56">จัดการ</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-sm">
@@ -741,7 +742,8 @@ export default function EmployeesPage() {
                         <span className="text-xs text-slate-400">-</span>
                       )}
                     </td>
-                    <td className="py-4">
+                    {/* ปรับให้จัดกึ่งกลาง */}
+                    <td className="py-4 text-center">
                       {emp.line_user_id ? (
                         <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700">
                           ✅ ผูกแล้ว
@@ -752,8 +754,9 @@ export default function EmployeesPage() {
                         </span>
                       )}
                     </td>
-                    <td className="py-4 text-right">
-                      <div className="flex justify-end gap-1.5">
+                    <td className="py-4">
+                      {/* เปลี่ยนจาก justify-end เป็น justify-center */}
+                      <div className="flex justify-center gap-1.5">
                         <button
                           onClick={() => handleViewProfile(emp)}
                           className="px-2.5 py-1.5 bg-slate-100 text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 border border-slate-200 rounded-lg text-xs font-bold transition-colors"
