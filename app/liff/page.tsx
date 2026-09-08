@@ -266,6 +266,24 @@ export default function LiffAttendancePage() {
             </div>
           )}
         </div>
+
+        {/* เมนูลัด (Quick Actions) */}
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <button
+            onClick={() => window.location.href = '/liff/leave'}
+            className="p-4 bg-white border border-slate-200 rounded-2xl text-slate-700 font-bold text-sm shadow-sm hover:bg-slate-50 flex flex-col items-center gap-2 transition-colors"
+          >
+            <span className="text-2xl">📝</span>
+            ยื่นใบลา
+          </button>
+          <button
+            onClick={() => window.location.href = '/liff/history'}
+            className="p-4 bg-white border border-slate-200 rounded-2xl text-slate-700 font-bold text-sm shadow-sm hover:bg-slate-50 flex flex-col items-center gap-2 transition-colors"
+          >
+            <span className="text-2xl">📋</span>
+            ประวัติการลา
+          </button>
+        </div>
       </div>
 
       {/* ปุ่มกด Action หลัก */}
