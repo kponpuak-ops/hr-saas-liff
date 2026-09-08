@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
-import Link from 'next/link' // เพิ่ม Import Link
+import Link from 'next/link'
 
 export default function SettingsPage() {
     const [activeTab, setActiveTab] = useState<'structure' | 'work_hours' | 'holidays'>('work_hours')
@@ -16,13 +16,19 @@ export default function SettingsPage() {
     const [newPos, setNewPos] = useState('')
     const [newBenefit, setNewBenefit] = useState('')
 
-    // --- 2. Work Hours & Shift State ---
+    // --- 2. Work Hours, Shift & OT State ---
     const [hasShifts, setHasShifts] = useState<boolean>(false)
     const [defaultStartTime, setDefaultStartTime] = useState('08:30')
     const [defaultEndTime, setDefaultEndTime] = useState('17:30')
     const [lateBufferMinutes, setLateBufferMinutes] = useState(15)
     const [lateDeduction, setLateDeduction] = useState(0)
     const [shifts, setShifts] = useState<any[]>([])
+    
+    // สเตทสำหรับเก็บค่า OT
+    const [otRateNormal, setOtRateNormal] = useState<number>(1.5)
+    const [otRateHolidayWork, setOtRateHolidayWork] = useState<number>(2.0)
+    const [otRateHolidayOt, setOtRateHolidayOt] = useState<number>(3.0)
+    
     const [isSavingSettings, setIsSavingSettings] = useState(false)
 
     const [newShift, setNewShift] = useState({
@@ -83,6 +89,11 @@ export default function SettingsPage() {
             setLateBufferMinutes(data.late_buffer_minutes || 0)
             setLateDeduction(data.late_deduction_per_minute || 0)
 
+            // ดึงค่า OT
+            setOtRateNormal(data.ot_rate_normal ?? 1.5)
+            setOtRateHolidayWork(data.ot_rate_holiday_work ?? 2.0)
+            setOtRateHolidayOt(data.ot_rate_holiday_ot ?? 3.0)
+
             // ดึงค่าประกันสังคม
             setSsEnabled(data.ss_enabled ?? true)
             setSsEmployeeRate(data.ss_employee_rate ?? 5.0)
@@ -112,6 +123,9 @@ export default function SettingsPage() {
             default_end_time: defaultEndTime,
             late_buffer_minutes: lateBufferMinutes,
             late_deduction_per_minute: lateDeduction,
+            ot_rate_normal: otRateNormal,
+            ot_rate_holiday_work: otRateHolidayWork,
+            ot_rate_holiday_ot: otRateHolidayOt,
             ss_enabled: ssEnabled,
             ss_employee_rate: ssEmployeeRate,
             ss_employer_rate: ssEmployerRate,
@@ -215,7 +229,7 @@ export default function SettingsPage() {
                         : 'border-transparent text-slate-400 hover:text-slate-600'
                         }`}
                 >
-                    ⏰ เวลาทำงาน, กะ & ประกันสังคม
+                    ⏰ เวลาทำงาน, OT & ประกันสังคม
                 </button>
                 <button
                     onClick={() => setActiveTab('holidays')}
@@ -237,9 +251,11 @@ export default function SettingsPage() {
                 </button>
             </div>
 
-            {/* TABS 1: เวลาทำงาน & ประกันสังคม */}
+            {/* TABS 1: เวลาทำงาน, OT & ประกันสังคม */}
             {activeTab === 'work_hours' && (
                 <div className="space-y-6 animate-fade-in">
+                    
+                    {/* กล่องตั้งค่าเข้างาน */}
                     <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
                         <h2 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
                             ⚙️ รูปแบบการเข้างานของบริษัท
@@ -418,6 +434,53 @@ export default function SettingsPage() {
                         )}
                     </div>
 
+                    {/* 💰 กล่องตั้งค่า OT (ใหม่) */}
+                    <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                        <h2 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
+                            💰 อัตราค่าล่วงเวลา (OT)
+                        </h2>
+                        <p className="text-xs text-slate-500 mb-4">กำหนดตัวคูณอัตราค่าจ้างต่อชั่วโมงสำหรับการทำงานล่วงเวลา (อ้างอิงตามกฎหมายแรงงาน)</p>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                                <label className="block text-xs font-bold text-indigo-900 mb-1">OT วันทำงานปกติ (เท่า)</label>
+                                <input 
+                                    type="number" 
+                                    step="0.5" 
+                                    min="0" 
+                                    className="w-full p-2.5 border border-slate-300 rounded-lg text-sm bg-white font-bold text-indigo-700 focus:ring-2 focus:ring-indigo-500 outline-none" 
+                                    value={otRateNormal} 
+                                    onChange={(e) => setOtRateNormal(Number(e.target.value))} 
+                                />
+                                <span className="text-[11px] text-slate-500 mt-2 block">ทำหลังเวลาเลิกงานปกติ (มาตรฐาน 1.5 เท่า)</span>
+                            </div>
+                            <div className="bg-emerald-50/50 p-4 rounded-xl border border-emerald-100">
+                                <label className="block text-xs font-bold text-emerald-900 mb-1">ทำงานในวันหยุด (เท่า)</label>
+                                <input 
+                                    type="number" 
+                                    step="0.5" 
+                                    min="0" 
+                                    className="w-full p-2.5 border border-emerald-300 rounded-lg text-sm bg-white font-bold text-emerald-700 focus:ring-2 focus:ring-emerald-500 outline-none" 
+                                    value={otRateHolidayWork} 
+                                    onChange={(e) => setOtRateHolidayWork(Number(e.target.value))} 
+                                />
+                                <span className="text-[11px] text-slate-500 mt-2 block">ทำในเวลาปกติของวันหยุด (มาตรฐาน 1.0 หรือ 2.0 เท่า)</span>
+                            </div>
+                            <div className="bg-rose-50/50 p-4 rounded-xl border border-rose-100">
+                                <label className="block text-xs font-bold text-rose-900 mb-1">OT วันหยุด (เท่า)</label>
+                                <input 
+                                    type="number" 
+                                    step="0.5" 
+                                    min="0" 
+                                    className="w-full p-2.5 border border-rose-300 rounded-lg text-sm bg-white font-bold text-rose-700 focus:ring-2 focus:ring-rose-500 outline-none" 
+                                    value={otRateHolidayOt} 
+                                    onChange={(e) => setOtRateHolidayOt(Number(e.target.value))} 
+                                />
+                                <span className="text-[11px] text-slate-500 mt-2 block">ทำหลังเวลาเลิกงานในวันหยุด (มาตรฐาน 3.0 เท่า)</span>
+                            </div>
+                        </div>
+                    </div>
+
                     {/* กล่องตั้งค่าประกันสังคม */}
                     <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
                         <div className="flex items-center justify-between mb-4">
@@ -497,6 +560,7 @@ export default function SettingsPage() {
                     </div>
                 </div>
             )}
+            
             {/* TABS 2: ปฏิทินวันหยุดองค์กร */}
             {activeTab === 'holidays' && (
                 <div className="space-y-6 animate-fade-in">
