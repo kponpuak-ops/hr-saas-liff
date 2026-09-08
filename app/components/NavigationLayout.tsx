@@ -62,6 +62,12 @@ export default function NavigationLayout({ children }: { children: React.ReactNo
           <span className="text-xl">📊</span> ภาพรวมระบบ
         </Link>
         <Link 
+          href="/employees" 
+          className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium ${pathname === '/employees' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+        >
+          <span className="text-xl">👥</span> รายชื่อพนักงาน
+        </Link>
+        <Link 
           href="/attendance" 
           className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium ${pathname === '/attendance' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
         >
