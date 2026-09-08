@@ -41,12 +41,26 @@ export default function LeaveTypesSettingsPage() {
     }
   }
 
+  // ฟังก์ชันอัปเดตจำนวนวันลา
+  const handleUpdateDays = async (id: number, newValue: number) => {
+    const { error } = await supabase
+      .from('leave_types')
+      .update({ max_paid_days: newValue })
+      .eq('id', id)
+
+    if (error) {
+      alert('เกิดข้อผิดพลาดในการอัปเดตจำนวนวัน')
+    } else {
+      fetchLeaveTypes()
+    }
+  }
+
   if (isLoading) {
     return <div className="p-4 text-slate-500 font-medium">กำลังโหลดข้อมูล...</div>
   }
 
   return (
-    <div className="pb-10 max-w-5xl">
+    <div className="pb-10 max-w-6xl mx-auto">
       <div className="flex items-center gap-4 mb-6">
         <Link href="/settings" className="text-slate-400 hover:text-indigo-600 font-bold text-sm bg-white px-4 py-2 rounded-lg shadow-sm border border-slate-200">
           ← กลับ
@@ -61,6 +75,7 @@ export default function LeaveTypesSettingsPage() {
               <tr className="border-b border-slate-200 text-sm text-slate-500">
                 <th className="pb-3 font-medium">ประเภทการลา</th>
                 <th className="pb-3 font-medium text-center">สิทธิ์รับค่าจ้าง (วัน/ปี)</th>
+                <th className="pb-3 font-medium text-center">รายเดือนได้เงิน?</th>
                 <th className="pb-3 font-medium text-center">รายวันได้เงิน?</th>
                 <th className="pb-3 font-medium text-center">ทดลองงานลาได้?</th>
               </tr>
@@ -72,9 +87,26 @@ export default function LeaveTypesSettingsPage() {
                     {item.name}
                   </td>
                   <td className="py-4 text-center">
-                    <span className="font-bold text-indigo-600 bg-indigo-50 px-3 py-1 rounded-lg">
-                      {item.max_paid_days === 999 ? 'ตามจริง' : item.max_paid_days}
-                    </span>
+                    <div className="flex items-center justify-center gap-2">
+                      <input 
+                        type="number"
+                        min="0"
+                        defaultValue={item.max_paid_days}
+                        onBlur={(e) => handleUpdateDays(item.id, Number(e.target.value))}
+                        className="w-20 text-center p-1.5 border border-slate-300 rounded-lg text-sm font-bold text-indigo-600 bg-indigo-50 focus:ring-2 focus:ring-indigo-500 outline-none"
+                      />
+                      <span className="text-xs text-slate-400 font-medium">(ใส่ 999 = ไม่จำกัด)</span>
+                    </div>
+                  </td>
+                  <td className="py-4 text-center">
+                    <button 
+                      onClick={() => toggleSetting(item.id, 'is_paid_for_monthly', item.is_paid_for_monthly)}
+                      className={`px-3 py-1 rounded-full text-xs font-bold transition-colors ${
+                        item.is_paid_for_monthly ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                      }`}
+                    >
+                      {item.is_paid_for_monthly ? '✅ ได้เงิน' : '❌ ไม่ได้เงิน'}
+                    </button>
                   </td>
                   <td className="py-4 text-center">
                     <button 
@@ -101,7 +133,8 @@ export default function LeaveTypesSettingsPage() {
             </tbody>
           </table>
         </div>
-        <p className="text-xs text-slate-400 mt-4">* กดที่ปุ่มสถานะเพื่อสลับการตั้งค่าเงื่อนไขการลาทันที</p>
+        <p className="text-xs text-slate-400 mt-4">* ตัวเลขสิทธิ์รับค่าจ้างจะบันทึกอัตโนมัติเมื่อพิมพ์เสร็จและคลิกพื้นที่อื่น</p>
+        <p className="text-xs text-slate-400 mt-1">* กดที่ปุ่มสถานะเพื่อสลับการตั้งค่าเงื่อนไขการลาทันที</p>
       </div>
     </div>
   )
