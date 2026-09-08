@@ -24,7 +24,6 @@ export default function SettingsPage() {
     const [shifts, setShifts] = useState<any[]>([])
     const [isSavingSettings, setIsSavingSettings] = useState(false)
 
-    // State สำหรับเพิ่มกะใหม่ (รวม late_deduction_per_minute)
     const [newShift, setNewShift] = useState({
         shift_name: '',
         start_time: '08:00',
@@ -33,12 +32,13 @@ export default function SettingsPage() {
         late_deduction_per_minute: 0,
     })
 
-    // --- 3. Holiday Calendar State ---
+    // --- 3. Holiday Calendar State (เพิ่ม ot_rate) ---
     const [holidays, setHolidays] = useState<any[]>([])
     const [newHoliday, setNewHoliday] = useState({
         holiday_date: '',
         name: '',
         type: 'traditional', // 'weekly' | 'traditional' | 'company'
+        ot_rate: 2.0, // 👈 เพิ่มค่าเริ่มต้นคูณ OT (2 เท่าสำหรับวันหยุด)
     })
 
     useEffect(() => {
@@ -140,7 +140,7 @@ export default function SettingsPage() {
         const { error } = await supabase.from('company_holidays').insert([newHoliday])
         if (error) alert('เกิดข้อผิดพลาด: ' + error.message)
         else {
-            setNewHoliday({ holiday_date: '', name: '', type: 'traditional' })
+            setNewHoliday({ holiday_date: '', name: '', type: 'traditional', ot_rate: 2.0 })
             fetchHolidays()
         }
     }
@@ -209,8 +209,6 @@ export default function SettingsPage() {
             {/* TABS 1: เวลาทำงาน & กะการทำงาน */}
             {activeTab === 'work_hours' && (
                 <div className="space-y-6 animate-fade-in">
-
-                    {/* เลือกรูปแบบการทำงาน */}
                     <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
                         <h2 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
                             ⚙️ รูปแบบการเข้างานของบริษัท
@@ -252,7 +250,6 @@ export default function SettingsPage() {
                             </label>
                         </div>
 
-                        {/* หากไม่มีกะ: ตั้งค่าเวลาปกติ */}
                         {!hasShifts ? (
                             <div className="bg-slate-50 p-5 rounded-xl border border-slate-200 space-y-4">
                                 <h3 className="font-bold text-xs text-slate-500 uppercase tracking-wider">ตั้งค่าเวลาทำงานปกติ</h3>
@@ -300,7 +297,6 @@ export default function SettingsPage() {
                                 </div>
                             </div>
                         ) : (
-                            /* หากมีกะ: ฟอร์มเพิ่มกะใหม่ */
                             <div className="bg-slate-50 p-5 rounded-xl border border-slate-200 space-y-4">
                                 <h3 className="font-bold text-xs text-slate-500 uppercase tracking-wider">➕ เพิ่มกะการทำงานใหม่</h3>
                                 <form onSubmit={handleAddShift} className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
@@ -365,7 +361,6 @@ export default function SettingsPage() {
                                     </div>
                                 </form>
 
-                                {/* รายการกะที่มีอยู่ */}
                                 <div className="mt-4 pt-4 border-t border-slate-200">
                                     <span className="text-xs font-bold text-slate-700 block mb-2">รายการกะทั้งหมดในระบบ:</span>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -404,7 +399,7 @@ export default function SettingsPage() {
                 </div>
             )}
 
-            {/* TABS 2: ปฏิทินวันหยุดองค์กร */}
+            {/* TABS 2: ปฏิทินวันหยุดองค์กร (เพิ่มช่องตัวคูณ OT) */}
             {activeTab === 'holidays' && (
                 <div className="space-y-6 animate-fade-in">
                     <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
@@ -412,7 +407,7 @@ export default function SettingsPage() {
                             📅 เพิ่มวันหยุดในปฏิทินบริษัท
                         </h2>
 
-                        <form onSubmit={handleAddHoliday} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end mb-6 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                        <form onSubmit={handleAddHoliday} className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end mb-6 bg-slate-50 p-4 rounded-xl border border-slate-200">
                             <div>
                                 <label className="block text-xs font-semibold text-slate-600 mb-1">วันที่หยุด *</label>
                                 <input
@@ -447,9 +442,21 @@ export default function SettingsPage() {
                                 </select>
                             </div>
                             <div>
+                                <label className="block text-xs font-semibold text-slate-600 mb-1">อัตราคูณ OT (เท่า)</label>
+                                <input
+                                    type="number"
+                                    step="0.5"
+                                    min="1"
+                                    required
+                                    className="w-full p-2.5 border border-indigo-300 bg-indigo-50/50 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-indigo-700"
+                                    value={newHoliday.ot_rate}
+                                    onChange={(e) => setNewHoliday({ ...newHoliday, ot_rate: Number(e.target.value) })}
+                                />
+                            </div>
+                            <div>
                                 <button
                                     type="submit"
-                                    className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-sm transition-all"
+                                    className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-sm transition-all shadow"
                                 >
                                     ➕ เพิ่มวันหยุด
                                 </button>
@@ -465,6 +472,7 @@ export default function SettingsPage() {
                                         <th className="pb-3">วันที่</th>
                                         <th className="pb-3">ชื่อวันหยุด</th>
                                         <th className="pb-3">ประเภทวันหยุด</th>
+                                        <th className="pb-3 text-center">อัตราคูณ OT</th>
                                         <th className="pb-3 text-right">จัดการ</th>
                                     </tr>
                                 </thead>
@@ -480,6 +488,11 @@ export default function SettingsPage() {
                                                 {h.type === 'traditional' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-purple-100 text-purple-700">วันหยุดประเพณี</span>}
                                                 {h.type === 'company' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-700">วันหยุดพิเศษบริษัท</span>}
                                             </td>
+                                            <td className="py-3 text-center">
+                                                <span className="px-2.5 py-1 rounded-lg text-xs font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                                    {h.ot_rate ?? 2.0} เท่า
+                                                </span>
+                                            </td>
                                             <td className="py-3 text-right">
                                                 <button
                                                     onClick={() => handleDeleteHoliday(h.id)}
@@ -492,7 +505,7 @@ export default function SettingsPage() {
                                     ))}
                                     {holidays.length === 0 && (
                                         <tr>
-                                            <td colSpan={4} className="py-6 text-center text-slate-400">ยังไม่มีข้อมูลวันหยุดในปฏิทิน</td>
+                                            <td colSpan={5} className="py-6 text-center text-slate-400">ยังไม่มีข้อมูลวันหยุดในปฏิทิน</td>
                                         </tr>
                                     )}
                                 </tbody>
@@ -502,10 +515,9 @@ export default function SettingsPage() {
                 </div>
             )}
 
-            {/* TABS 3: โครงสร้างองค์กร (แผนก / ตำแหน่ง / สวัสดิการ) */}
+            {/* TABS 3: โครงสร้างองค์กร */}
             {activeTab === 'structure' && (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-fade-in">
-                    {/* แผนก */}
                     <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
                         <h2 className="font-bold text-slate-800 mb-4 flex items-center gap-2">🏢 รายชื่อแผนก</h2>
                         <div className="flex gap-2 mb-4">
@@ -533,7 +545,6 @@ export default function SettingsPage() {
                         </ul>
                     </div>
 
-                    {/* ตำแหน่ง */}
                     <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
                         <h2 className="font-bold text-slate-800 mb-4 flex items-center gap-2">💼 ตำแหน่งงาน</h2>
                         <div className="flex gap-2 mb-4">
@@ -561,7 +572,6 @@ export default function SettingsPage() {
                         </ul>
                     </div>
 
-                    {/* สวัสดิการ */}
                     <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
                         <h2 className="font-bold text-slate-800 mb-4 flex items-center gap-2">🎁 ประเภทสวัสดิการ</h2>
                         <div className="flex gap-2 mb-4">
@@ -590,7 +600,6 @@ export default function SettingsPage() {
                     </div>
                 </div>
             )}
-
         </div>
     )
 }
