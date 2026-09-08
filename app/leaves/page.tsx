@@ -24,13 +24,7 @@ export default function LeavesAdminPage() {
       .from('leaves')
       .select(`
         *,
-        users (
-          first_name,
-          last_name,
-          role,
-          position,
-          departments(name)
-        )
+        users (*)
       `)
       .order('created_at', { ascending: false })
 
@@ -146,7 +140,7 @@ export default function LeavesAdminPage() {
                     <td className="py-4 font-medium text-slate-800">
                       {item.users?.first_name} {item.users?.last_name}
                       <div className="text-xs text-slate-500 font-normal mt-0.5">
-                        {item.users?.position || 'ไม่ระบุตำแหน่ง'} • {item.users?.departments?.name || 'ไม่ระบุแผนก'}
+                        {item.users?.position || item.users?.role || 'ไม่ระบุตำแหน่ง'}
                       </div>
                     </td>
                     <td className="py-4 text-sm font-bold text-indigo-600">{item.leave_type}</td>
@@ -197,7 +191,7 @@ export default function LeavesAdminPage() {
                 </div>
                 <div>
                   <h3 className="font-bold text-slate-800">{selectedLeave.users?.first_name} {selectedLeave.users?.last_name}</h3>
-                  <p className="text-xs text-slate-500">{selectedLeave.users?.position || '-'} • {selectedLeave.users?.departments?.name || '-'}</p>
+                  <p className="text-xs text-slate-500">{selectedLeave.users?.position || selectedLeave.users?.role || '-'}</p>
                 </div>
               </div>
 
@@ -226,13 +220,13 @@ export default function LeavesAdminPage() {
               <div className="space-y-1">
                 <span className="text-xs font-bold text-slate-400">ไฟล์แนบ / หลักฐาน</span>
                 {selectedLeave.attachment_url ? (
-                  <div className="mt-2 border border-slate-200 rounded-lg overflow-hidden">
+                  <div className="mt-2 border border-slate-200 rounded-lg overflow-hidden bg-slate-50 flex justify-center">
                     {selectedLeave.attachment_url.toLowerCase().match(/\.(jpeg|jpg|gif|png)$/) != null ? (
                       <a href={selectedLeave.attachment_url} target="_blank" rel="noreferrer">
-                        <img src={selectedLeave.attachment_url} alt="หลักฐาน" className="w-full h-auto max-h-48 object-cover hover:opacity-90 transition cursor-zoom-in" />
+                        <img src={selectedLeave.attachment_url} alt="หลักฐาน" className="w-auto h-auto max-h-64 object-contain hover:opacity-90 transition cursor-zoom-in" />
                       </a>
                     ) : (
-                      <a href={selectedLeave.attachment_url} target="_blank" rel="noreferrer" className="flex items-center gap-2 p-3 text-sm text-indigo-600 hover:bg-indigo-50 font-bold">
+                      <a href={selectedLeave.attachment_url} target="_blank" rel="noreferrer" className="flex items-center gap-2 p-3 text-sm text-indigo-600 hover:bg-indigo-50 font-bold w-full justify-center">
                         📎 คลิกเพื่อดูไฟล์แนบ (PDF/Document)
                       </a>
                     )}
