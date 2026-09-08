@@ -6,7 +6,11 @@ import { supabase } from '@/lib/supabase'
 
 export default function LeavePage() {
   const [userDbId, setUserDbId] = useState<number | null>(null)
-  const [leaveType, setLeaveType] = useState('ลาป่วย')
+  
+  // States สำหรับประเภทการลา
+  const [leaveTypes, setLeaveTypes] = useState<any[]>([])
+  const [leaveType, setLeaveType] = useState('')
+  
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [reason, setReason] = useState('')
@@ -17,8 +21,20 @@ export default function LeavePage() {
   const [message, setMessage] = useState('')
 
   useEffect(() => {
-    const initLiff = async () => {
+    const initData = async () => {
       try {
+        // 1. ดึงข้อมูลประเภทการลาจากฐานข้อมูล
+        const { data: typesData } = await supabase
+          .from('leave_types')
+          .select('*')
+          .order('id', { ascending: true })
+          
+        if (typesData && typesData.length > 0) {
+          setLeaveTypes(typesData)
+          setLeaveType(typesData[0].name) // ตั้งค่าเริ่มต้นเป็นอันแรก
+        }
+
+        // 2. ตรวจสอบ LIFF
         await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID! })
         if (liff.isLoggedIn()) {
           const profile = await liff.getProfile()
@@ -33,12 +49,12 @@ export default function LeavePage() {
           liff.login()
         }
       } catch (err) {
-        console.error('LIFF Init error:', err)
+        console.error('Init error:', err)
       } finally {
         setIsLoading(false)
       }
     }
-    initLiff()
+    initData()
   }, [])
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -101,7 +117,6 @@ export default function LeavePage() {
       setEndDate('')
       setAttachmentUrl('')
       
-      // รีเซ็ต input file
       const fileInput = document.getElementById('file-upload') as HTMLInputElement
       if (fileInput) fileInput.value = ''
     }
@@ -119,6 +134,9 @@ export default function LeavePage() {
       </div>
     )
   }
+
+  // หาข้อมูลเงื่อนไขของการลาที่เลือกอยู่
+  const selectedLeaveInfo = leaveTypes.find(l => l.name === leaveType)
 
   return (
     <div className="min-h-screen bg-slate-50 p-4 font-sans pb-8">
@@ -149,10 +167,33 @@ export default function LeavePage() {
               onChange={(e) => setLeaveType(e.target.value)}
               className="w-full p-3 border border-slate-300 rounded-xl font-medium focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
             >
-              <option value="ลาป่วย">ลาป่วย</option>
-              <option value="ลากิจ">ลากิจ</option>
-              <option value="ลาพักร้อน">ลาพักร้อน</option>
+              {leaveTypes.map((type) => (
+                <option key={type.id} value={type.name}>{type.name}</option>
+              ))}
             </select>
+
+            {/* กล่องแสดงเงื่อนไขการลาแบบ Real-time */}
+            {selectedLeaveInfo && (
+              <div className="mt-3 p-3 bg-indigo-50 border border-indigo-100 rounded-xl text-xs space-y-1.5">
+                <div className="flex justify-between items-center text-slate-600">
+                  <span>สิทธิ์การรับค่าจ้าง:</span>
+                  <span className="font-bold text-indigo-700">{selectedLeaveInfo.max_paid_days === 999 ? 'ได้เงินตามจริง' : `${selectedLeaveInfo.max_paid_days} วัน/ปี`}</span>
+                </div>
+                <div className="flex justify-between items-center text-slate-600">
+                  <span>พนักงานรายเดือน:</span>
+                  <span className="font-bold">{selectedLeaveInfo.is_paid_for_monthly ? '✅ ได้เงิน' : '❌ ไม่ได้เงิน'}</span>
+                </div>
+                <div className="flex justify-between items-center text-slate-600">
+                  <span>พนักงานรายวัน:</span>
+                  <span className="font-bold">{selectedLeaveInfo.is_paid_for_daily ? '✅ ได้เงิน' : '❌ ไม่ได้เงิน'}</span>
+                </div>
+                {!selectedLeaveInfo.allow_probation && (
+                  <div className="mt-2 pt-2 border-t border-indigo-200 text-rose-600 font-bold text-center">
+                    ⚠️ พนักงานทดลองงานไม่มีสิทธิ์ลาประเภทนี้
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
