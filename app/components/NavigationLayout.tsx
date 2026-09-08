@@ -55,31 +55,31 @@ export default function NavigationLayout({ children }: { children: React.ReactNo
           HR SaaS
         </div>
         <nav className="flex-1 px-4 py-6 space-y-2">
-          <Link
-            href="/"
-            className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium ${pathname === '/' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
-          >
-            <span className="text-xl">👥</span> รายชื่อพนักงาน
-          </Link>
-          <Link
-            href="/attendance"
-            className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium ${pathname === '/attendance' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
-          >
-            <span className="text-xl">📅</span> ประวัติลงเวลา
-          </Link>
-          <Link
-            href="/leaves"
-            className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium ${pathname === '/leaves' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
-          >
-            <span className="text-xl">📝</span> จัดการการลา
-          </Link>
-          <Link
-            href="/settings"
-            className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium ${pathname === '/settings' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
-          >
-            <span className="text-xl">⚙️</span> ตั้งค่าองค์กร
-          </Link>
-        </nav>
+        <Link 
+          href="/" 
+          className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium ${pathname === '/' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+        >
+          <span className="text-xl">📊</span> ภาพรวมระบบ
+        </Link>
+        <Link 
+          href="/attendance" 
+          className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium ${pathname === '/attendance' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+        >
+          <span className="text-xl">📅</span> ประวัติลงเวลา
+        </Link>
+        <Link 
+          href="/leaves" 
+          className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium ${pathname === '/leaves' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+        >
+          <span className="text-xl">📝</span> จัดการการลา
+        </Link>
+        <Link 
+          href="/settings" 
+          className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium ${pathname === '/settings' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+        >
+          <span className="text-xl">⚙️</span> ตั้งค่าองค์กร
+        </Link>
+      </nav>
 
         {/* ส่วนปุ่มออกจากระบบด้านล่างสุด */}
         <div className="p-4 border-t border-slate-800">

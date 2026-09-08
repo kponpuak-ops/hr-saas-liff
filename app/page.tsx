@@ -1,66 +1,163 @@
+'use client'
+
+import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import Link from 'next/link'
 
-export const dynamic = 'force-dynamic'
+export default function AnalyticsDashboard() {
+  const [stats, setStats] = useState({
+    totalEmployees: 0,
+    presentToday: 0,
+    lateToday: 0,
+    onLeaveToday: 0,
+    pendingLeaves: 0,
+  })
+  const [isLoading, setIsLoading] = useState(true)
 
-export default async function EmployeesPage() {
-  // ดึงข้อมูลพนักงานทั้งหมดจากตาราง users
-  const { data: employees, error } = await supabase
-    .from('users')
-    .select('*')
-    .order('id', { ascending: true })
+  useEffect(() => {
+    fetchDashboardStats()
+  }, [])
 
-  if (error) return <div className="p-4 text-red-500">เกิดข้อผิดพลาด: {error.message}</div>
+  const fetchDashboardStats = async () => {
+    setIsLoading(true)
+    const todayStr = new Date().toISOString().split('T')[0]
+
+    try {
+      // 1. จำนวนพนักงานทั้งหมด
+      const { count: employeeCount } = await supabase
+        .from('users')
+        .select('*', { count: 'exact', head: true })
+
+      // 2. การลงเวลาวันนี้
+      const { data: attendanceData } = await supabase
+        .from('attendance')
+        .select('*')
+        .gte('check_in', `${todayStr}T00:00:00`)
+        .lte('check_in', `${todayStr}T23:59:59`)
+
+      const presentCount = attendanceData ? attendanceData.length : 0
+      const lateCount = attendanceData ? attendanceData.filter(a => a.status === 'late').length : 0
+
+      // 3. คนที่ลาวันนี้ (ได้รับอนุมัติแล้ว และช่วงวันตรงกับวันนี้)
+      const { count: leaveCount } = await supabase
+        .from('leaves')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'approved')
+        .lte('start_date', todayStr)
+        .gte('end_date', todayStr)
+
+      // 4. ใบลารออนุมัติ
+      const { count: pendingCount } = await supabase
+        .from('leaves')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'pending')
+
+      setStats({
+        totalEmployees: employeeCount || 0,
+        presentToday: presentCount,
+        lateToday: lateCount,
+        onLeaveToday: leaveCount || 0,
+        pendingLeaves: pendingCount || 0,
+      })
+    } catch (error) {
+      console.error('Error fetching dashboard stats:', error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  if (isLoading) {
+    return <div className="p-4 text-slate-500 font-medium">กำลังโหลดข้อมูลภาพรวม...</div>
+  }
 
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-slate-800">รายชื่อพนักงาน</h1>
-        {/* ในอนาคตสามารถเพิ่มปุ่ม "+ เพิ่มพนักงาน" ตรงนี้ได้ */}
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">แดชบอร์ดภาพรวม (Analytics Overview)</h1>
+          <p className="text-slate-500 text-sm">
+            ข้อมูลประจำวันที่ {new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}
+          </p>
+        </div>
+        <button
+          onClick={fetchDashboardStats}
+          className="px-4 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg text-sm font-medium transition-colors shadow-sm flex items-center gap-2"
+        >
+          🔄 รีเฟรชข้อมูล
+        </button>
       </div>
-      
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-        {!employees || employees.length === 0 ? (
-          <p className="text-slate-500 text-center py-4">ยังไม่มีข้อมูลพนักงาน</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-200 text-sm text-slate-500">
-                  <th className="pb-3 font-medium">รหัส (ID)</th>
-                  <th className="pb-3 font-medium">ชื่อ-นามสกุล</th>
-                  <th className="pb-3 font-medium">ตำแหน่ง</th>
-                  <th className="pb-3 font-medium">รหัสผูกบัญชี (6 หลัก)</th>
-                  <th className="pb-3 font-medium">สถานะ LINE</th>
-                </tr>
-              </thead>
-              <tbody>
-                {employees.map((emp) => (
-                  <tr key={emp.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
-                    <td className="py-4 text-sm text-slate-600">#{emp.id}</td>
-                    <td className="py-4 font-medium text-slate-800">
-                      {emp.first_name} {emp.last_name}
-                    </td>
-                    <td className="py-4 text-sm text-slate-500">{emp.role}</td>
-                    <td className="py-4 font-mono text-indigo-600 font-bold">
-                      {emp.binding_code || '-'}
-                    </td>
-                    <td className="py-4">
-                      {emp.line_user_id ? (
-                        <span className="inline-flex items-center gap-1.5 py-1 px-3 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-200">
-                          <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span> ผูกบัญชีแล้ว
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1.5 py-1 px-3 rounded-full text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200">
-                          รอการผูกบัญชี
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+
+      {/* สรุปการ์ดสถิติ 5 ช่อง */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-slate-500 text-sm font-medium">พนักงานทั้งหมด</span>
+            <span className="p-2 bg-indigo-50 text-indigo-600 rounded-lg text-lg">👥</span>
           </div>
-        )}
+          <div className="text-3xl font-bold text-slate-800">{stats.totalEmployees}</div>
+          <span className="text-xs text-slate-400">คนในระบบ</span>
+        </div>
+
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-slate-500 text-sm font-medium">มาทำงานวันนี้</span>
+            <span className="p-2 bg-emerald-50 text-emerald-600 rounded-lg text-lg">✅</span>
+          </div>
+          <div className="text-3xl font-bold text-emerald-600">{stats.presentToday}</div>
+          <span className="text-xs text-slate-400">ลงเวลาเข้างานแล้ว</span>
+        </div>
+
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-slate-500 text-sm font-medium">เข้าสายวันนี้</span>
+            <span className="p-2 bg-amber-50 text-amber-600 rounded-lg text-lg">⏰</span>
+          </div>
+          <div className="text-3xl font-bold text-amber-600">{stats.lateToday}</div>
+          <span className="text-xs text-slate-400">หลังเวลาที่กำหนด</span>
+        </div>
+
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-slate-500 text-sm font-medium">ลาวันนี้</span>
+            <span className="p-2 bg-blue-50 text-blue-600 rounded-lg text-lg">🏖️</span>
+          </div>
+          <div className="text-3xl font-bold text-blue-600">{stats.onLeaveToday}</div>
+          <span className="text-xs text-slate-400">อนุมัติแล้ว</span>
+        </div>
+
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-slate-500 text-sm font-medium">ใบลารออนุมัติ</span>
+            <span className="p-2 bg-rose-50 text-rose-600 rounded-lg text-lg">📑</span>
+          </div>
+          <div className="text-3xl font-bold text-rose-600">{stats.pendingLeaves}</div>
+          <span className="text-xs text-slate-400">รอดำเนินการ</span>
+        </div>
+      </div>
+
+      {/* ทางลัดไปยังหน้าจัดการต่างๆ */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+          <h2 className="text-lg font-bold text-slate-800 mb-2">📅 การลงเวลาวันนี้</h2>
+          <p className="text-slate-500 text-sm mb-4">ตรวจสอบรายชื่อพนักงานที่ลงเวลาเข้า-ออกงานในวันนี้แบบละเอียด</p>
+          <Link 
+            href="/attendance"
+            className="inline-flex items-center gap-2 text-indigo-600 hover:text-indigo-700 font-medium text-sm"
+          >
+            ดูประวัติลงเวลาทั้งหมด →
+          </Link>
+        </div>
+
+        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+          <h2 className="text-lg font-bold text-slate-800 mb-2">📝 รายการอนุมัติการลา</h2>
+          <p className="text-slate-500 text-sm mb-4">มีใบลารอดำเนินการ {stats.pendingLeaves} รายการ สามารถเข้าไปพิจารณาอนุมัติได้ทันที</p>
+          <Link 
+            href="/leaves"
+            className="inline-flex items-center gap-2 text-indigo-600 hover:text-indigo-700 font-medium text-sm"
+          >
+            ไปที่หน้าจัดการการลา →
+          </Link>
+        </div>
       </div>
     </div>
   )
