@@ -1,129 +1,194 @@
+'use client'
+
+import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
-import ExportButton from '../components/ExportButton'
 
-export const dynamic = 'force-dynamic'
+export default function AttendanceAdminPage() {
+  const [records, setRecords] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [settings, setSettings] = useState<any>(null)
 
-export default async function AttendancePage() {
-  // 1. ดึงข้อมูลประวัติการลงเวลา
-  const { data: records, error } = await supabase
-    .from('attendance')
-    .select(`
-      *,
-      users (
-        first_name,
-        last_name,
-        role
-      )
-    `)
-    .order('action_date', { ascending: false })
-    .order('check_in_time', { ascending: false })
+  useEffect(() => {
+    fetchData()
+  }, [])
 
-  // 2. ดึงการตั้งค่าเวลาทำงานจากตาราง company_settings
-  const { data: settings } = await supabase
-    .from('company_settings')
-    .select('default_start_time, late_buffer_minutes, late_deduction_per_minute')
-    .eq('id', 1)
-    .single()
+  const fetchData = async () => {
+    setLoading(true)
+    try {
+      // 1. ดึงการตั้งค่าบริษัท (เวลามาตรฐาน, หักเงิน, บัฟเฟอร์สาย)
+      const { data: companySettings } = await supabase
+        .from('company_settings')
+        .select('*')
+        .eq('id', 1)
+        .single()
+      
+      setSettings(companySettings)
 
-  // ค่าตั้งต้นเวลาทำงาน
-  const defaultStartTime = settings?.default_start_time || '08:30:00'
-  const lateBufferMinutes = settings?.late_buffer_minutes || 0
-  const deductionPerMinute = settings?.late_deduction_per_minute || 0
+      // 2. ดึงประวัติลงเวลา + ข้อมูลพนักงาน + ข้อมูลกะ
+      const { data: attendanceData, error } = await supabase
+        .from('attendance')
+        .select(`
+          *,
+          users (first_name, last_name, employee_id, avatar_url, position),
+          work_shifts (shift_name, start_time, end_time)
+        `)
+        .order('action_date', { ascending: false })
+        .order('id', { ascending: false }) // เรียงตาม ID ล่าสุด เพื่อให้เห็นกะที่ 2 อยู่บนสุด
 
-  if (error) return <div className="p-4 text-red-500">เกิดข้อผิดพลาด: {error.message}</div>
+      if (error) throw error
+      setRecords(attendanceData || [])
+    } catch (err: any) {
+      console.error('Error fetching data:', err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // ฟังก์ชันคำนวณมาสายและยอดหักเงิน
+  const calculateLate = (checkInTime: string, shiftInfo: any) => {
+    if (!checkInTime || !settings) return { lateMinutes: 0, penalty: 0 }
+
+    // เลือกเวลาเริ่มงาน: ถ้ามีกะให้ใช้เวลากะ ถ้าไม่มีกะให้ใช้เวลามาตรฐานบริษัท
+    const expectedStartTime = shiftInfo?.start_time || settings.work_start_time
+    if (!expectedStartTime) return { lateMinutes: 0, penalty: 0 }
+
+    const checkInDate = new Date(checkInTime)
+    
+    // แปลงเวลาเป้าหมาย (HH:mm) มาสร้างเป็น Date object ในวันเดียวกัน
+    const [expHours, expMinutes] = expectedStartTime.split(':').map(Number)
+    const expectedDate = new Date(checkInTime)
+    expectedDate.setHours(expHours, expMinutes, 0, 0)
+
+    // คำนวณส่วนต่างเป็นนาที
+    const diffMs = checkInDate.getTime() - expectedDate.getTime()
+    const diffMins = Math.floor(diffMs / 60000)
+
+    const buffer = settings.late_buffer_minutes || 0
+    if (diffMins > buffer) {
+      const penalty = diffMins * (settings.late_penalty_per_minute || 0)
+      return { lateMinutes: diffMins, penalty }
+    }
+
+    return { lateMinutes: 0, penalty: 0 }
+  }
 
   return (
-    <div>
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">ประวัติการลงเวลา (Attendance)</h1>
-          <p className="text-slate-500 text-sm">
-            เวลาเข้างานมาตรฐาน: {defaultStartTime.substring(0, 5)} น. (สายได้ไม่เกิน {lateBufferMinutes} นาที | หักนาทีละ ฿{deductionPerMinute})
-          </p>
+    <div className="min-h-screen bg-slate-50 p-4 md:p-8">
+      <div className="max-w-6xl mx-auto">
+        <div className="mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-800">ประวัติการลงเวลา (Attendance)</h1>
+            <p className="text-slate-500 mt-1">
+              {settings?.has_shifts ? '🏢 โหมดปัจจุบัน: ระบบมีกะ (Multi-Shift)' : '🏢 โหมดปัจจุบัน: เวลามาตรฐาน (Fixed Time)'}
+            </p>
+          </div>
+          <button 
+            onClick={fetchData}
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow font-medium transition"
+          >
+            🔄 รีเฟรชข้อมูล
+          </button>
         </div>
-        {records && records.length > 0 && <ExportButton data={records} />}
-      </div>
-      
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-        {!records || records.length === 0 ? (
-          <p className="text-slate-500 text-center py-4">ยังไม่มีข้อมูลการลงเวลา</p>
-        ) : (
+
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-wider">
-                  <th className="pb-3">วันที่</th>
-                  <th className="pb-3">ชื่อ-นามสกุล</th>
-                  <th className="pb-3">ตำแหน่ง</th>
-                  <th className="pb-3">เวลาเข้างาน</th>
-                  <th className="pb-3">เวลาออกงาน</th>
+            <table className="w-full text-left text-sm whitespace-nowrap">
+              <thead className="bg-slate-50 border-b border-slate-200 text-slate-600">
+                <tr>
+                  <th className="px-6 py-4 font-semibold">วันที่</th>
+                  <th className="px-6 py-4 font-semibold">พนักงาน</th>
+                  <th className="px-6 py-4 font-semibold">รอบกะการทำงาน</th>
+                  <th className="px-6 py-4 font-semibold text-center">เข้างาน</th>
+                  <th className="px-6 py-4 font-semibold text-center">ออกงาน</th>
+                  <th className="px-6 py-4 font-semibold text-right">สถานะสาย / หักเงิน</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 text-sm">
-                {records.map((record) => {
-                  const formatDate = (dateString: string) => {
-                     return new Date(dateString).toLocaleDateString('th-TH', { 
-                       timeZone: 'Asia/Bangkok', year: 'numeric', month: 'short', day: 'numeric' 
-                     })
-                  }
-                  
-                  const formatTime = (timeString: string | null) => {
-                     if (!timeString) return '-'
-                     return new Date(timeString).toLocaleTimeString('th-TH', { 
-                       timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' 
-                     }) + ' น.'
-                  }
+              <tbody className="divide-y divide-slate-100">
+                {loading ? (
+                  <tr>
+                    <td colSpan={6} className="text-center py-10 text-slate-500">
+                      กำลังโหลดข้อมูล...
+                    </td>
+                  </tr>
+                ) : records.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="text-center py-10 text-slate-500">
+                      ยังไม่มีประวัติการลงเวลา
+                    </td>
+                  </tr>
+                ) : (
+                  records.map((record) => {
+                    // คำนวณความสาย
+                    const lateInfo = calculateLate(record.check_in_time, record.work_shifts)
+                    const isLate = lateInfo.lateMinutes > 0
 
-                  // 3. ฟังก์ชันคำนวณจำนวนนาทีที่สาย และยอดเงินหัก
-                  const getLateDetails = (timeString: string | null) => {
-                    if (!timeString) return { isLate: false, lateMins: 0, penalty: 0 }
-                    
-                    const date = new Date(timeString)
-                    const thaiTimeStr = date.toLocaleTimeString('en-US', { timeZone: 'Asia/Bangkok', hour12: false })
-                    const [inHour, inMinute] = thaiTimeStr.split(':').map(Number)
-                    const [stdHour, stdMinute] = defaultStartTime.split(':').map(Number)
-
-                    const checkInTotalMins = inHour * 60 + inMinute
-                    const stdTotalMins = stdHour * 60 + stdMinute
-                    const allowedCutoffMins = stdTotalMins + lateBufferMinutes
-
-                    // หากเวลาเข้างาน เกินเวลามาตรฐาน + นาทีที่อนุญาต (Buffer)
-                    if (checkInTotalMins > allowedCutoffMins) {
-                      const lateMins = checkInTotalMins - stdTotalMins // คำนวณนาทีสายจากเวลาเข้างานปกติ
-                      const penalty = lateMins * deductionPerMinute
-                      return { isLate: true, lateMins, penalty }
-                    }
-
-                    return { isLate: false, lateMins: 0, penalty: 0 }
-                  }
-
-                  const lateInfo = getLateDetails(record.check_in_time)
-
-                  return (
-                    <tr key={record.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="py-4 font-medium text-slate-600">{formatDate(record.action_date)}</td>
-                      <td className="py-4 font-bold text-slate-800">
-                        {record.users?.first_name} {record.users?.last_name}
-                      </td>
-                      <td className="py-4 text-slate-500">{record.users?.role || '-'}</td>
-                      
-                      <td className="py-4">
-                        <span className="text-emerald-600 font-bold">{formatTime(record.check_in_time)}</span>
-                        {lateInfo.isLate && (
-                          <span className="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-100 text-rose-700 border border-rose-200">
-                            🔴 สาย {lateInfo.lateMins} นาที {lateInfo.penalty > 0 ? `(หัก ฿${lateInfo.penalty.toLocaleString()})` : ''}
+                    return (
+                      <tr key={record.id} className="hover:bg-slate-50 transition">
+                        <td className="px-6 py-4">
+                          {new Date(record.action_date).toLocaleDateString('th-TH', { 
+                            year: 'numeric', month: 'short', day: 'numeric' 
+                          })}
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-xs">
+                              {record.users?.first_name?.[0] || '👤'}
+                            </div>
+                            <div>
+                              <p className="font-medium text-slate-800">
+                                {record.users?.first_name} {record.users?.last_name}
+                              </p>
+                              <p className="text-xs text-slate-500">{record.users?.position || 'พนักงาน'}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          {record.work_shifts ? (
+                            <span className="px-2.5 py-1 bg-purple-50 text-purple-700 border border-purple-200 rounded-md text-xs font-medium inline-block">
+                              {record.work_shifts.shift_name} ({record.work_shifts.start_time?.substring(0,5)} - {record.work_shifts.end_time?.substring(0,5)})
+                            </span>
+                          ) : (
+                            <span className="px-2.5 py-1 bg-slate-100 text-slate-600 border border-slate-200 rounded-md text-xs font-medium inline-block">
+                              เวลามาตรฐาน
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          <span className="text-emerald-600 font-medium bg-emerald-50 px-2 py-1 rounded">
+                            {record.check_in_time 
+                              ? new Date(record.check_in_time).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) 
+                              : '-'}
                           </span>
-                        )}
-                      </td>
-
-                      <td className="py-4 text-slate-600 font-medium">{formatTime(record.check_out_time)}</td>
-                    </tr>
-                  )
-                })}
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          {record.check_out_time ? (
+                            <span className="text-rose-600 font-medium bg-rose-50 px-2 py-1 rounded">
+                              {new Date(record.check_out_time).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          ) : (
+                            <span className="text-amber-500 text-xs font-semibold bg-amber-50 px-2 py-1 rounded">
+                              กำลังปฏิบัติงาน
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          {isLate ? (
+                            <div className="flex flex-col items-end">
+                              <span className="text-rose-600 text-xs font-bold">สาย {lateInfo.lateMinutes} นาที</span>
+                              <span className="text-rose-800 font-semibold mt-0.5">-{lateInfo.penalty} ฿</span>
+                            </div>
+                          ) : (
+                            <span className="text-emerald-500 text-xs font-bold">✅ ปกติ</span>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })
+                )}
               </tbody>
             </table>
           </div>
-        )}
+        </div>
       </div>
     </div>
   )
