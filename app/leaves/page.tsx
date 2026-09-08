@@ -33,7 +33,7 @@ export default function LeavesAdminPage() {
     setIsLoading(false)
   }
 
-  const handleUpdateStatus = async (leaveId: number, status: 'approved' | 'rejected') => {
+ const handleUpdateStatus = async (leaveId: number, status: 'approved' | 'rejected') => {
     const { error } = await supabase
       .from('leaves')
       .update({ status })
@@ -42,6 +42,13 @@ export default function LeavesAdminPage() {
     if (error) {
       alert('เกิดข้อผิดพลาดในการอัปเดตสถานะ')
     } else {
+      // สั่งส่งข้อความแจ้งเตือนหาพนักงานทาง LINE
+      fetch('/api/notify-leave', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leaveId, status }),
+      }).catch((err) => console.error('Notification error:', err))
+
       fetchLeaves()
     }
   }
