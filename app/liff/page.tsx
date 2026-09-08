@@ -130,10 +130,9 @@ export default function LiffPage() {
 
     const handleCheckOut = async () => {
         setIsLoading(true)
-        const today = getTodayString() // เพิ่มบรรทัดนี้เพื่อดึงวันที่วันนี้
+        const today = getTodayString()
         const now = new Date().toISOString()
 
-        // เปลี่ยนวิธีค้นหาข้อมูล (ไม่ต้องใช้ id แล้ว)
         const { error } = await supabase.from('attendance').update({
             check_out_time: now
         })
@@ -157,7 +156,7 @@ export default function LiffPage() {
         <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 font-sans">
             <div className="w-full max-w-sm bg-white rounded-3xl shadow-xl p-8 border border-slate-100 relative overflow-hidden">
 
-                {/* หน้าจอ 1: ผูกบัญชี (สำหรับคนยังไม่เคยมีคอลัมน์ line_user_id) */}
+                {/* หน้าจอ 1: ผูกบัญชี */}
                 {view === 'bind' && (
                     <div className="animate-in fade-in duration-500">
                         <div className="text-center mb-6">
@@ -188,7 +187,7 @@ export default function LiffPage() {
                     </div>
                 )}
 
-                {/* หน้าจอ 2: ระบบลงเวลา (สำหรับคนที่ผูกบัญชีแล้ว) */}
+                {/* หน้าจอ 2: ระบบลงเวลา */}
                 {view === 'attendance' && employee && (
                     <div className="animate-in fade-in zoom-in-95 duration-300">
                         <div className="text-center mb-8">
@@ -229,13 +228,6 @@ export default function LiffPage() {
                                     </button>
                                 </div>
                             )}
-                            // วางปุ่มนี้ไว้ใต้ปุ่มลงเวลาเข้า-ออกงานเดิม
-                            <Link
-                                href="/liff/leave"
-                                className="block w-full text-center bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium py-3 rounded-xl transition-colors mt-3"
-                            >
-                                📝 ยื่นใบลา
-                            </Link>
 
                             {/* สเตป 3: ลงเวลาออกงานแล้ว */}
                             {attendanceToday && attendanceToday.check_out_time && (
@@ -249,6 +241,14 @@ export default function LiffPage() {
                                     </div>
                                 </div>
                             )}
+
+                            {/* ปุ่มยื่นใบลา (แสดงผลตลอดเวลา) */}
+                            <Link
+                                href="/liff/leave"
+                                className="block w-full text-center bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium py-3 rounded-xl transition-colors mt-4"
+                            >
+                                📝 ยื่นใบลา
+                            </Link>
                         </div>
                     </div>
                 )}
