@@ -3,11 +3,16 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
 
+type BenefitItem = {
+  name: string
+  amount: number
+}
+
 export default function EmployeesPage() {
   const [employees, setEmployees] = useState<any[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [showAddForm, setShowAddForm] = useState(false)
-  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isLoading, setIsLoading] = useState<boolean>(true)
+  const [showAddForm, setShowAddForm] = useState<boolean>(false)
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false)
 
   // Master Data Options
   const [departments, setDepartments] = useState<any[]>([])
@@ -28,8 +33,8 @@ export default function EmployeesPage() {
     position: '',
   })
 
-  // Dynamic Benefits State [{ name: 'ค่าเดินทาง', amount: 1000 }]
-  const [employeeBenefits, setEmployeeBenefits] = useState<{ name: string; amount: number }[]>([])
+  // Dynamic Benefits State
+  const [employeeBenefits, setEmployeeBenefits] = useState<BenefitItem[]>([])
 
   useEffect(() => {
     fetchInitialData()
@@ -62,19 +67,24 @@ export default function EmployeesPage() {
   // เพิ่มรายการสวัสดิการ
   const handleAddBenefitRow = () => {
     const defaultName = benefitOptions.length > 0 ? benefitOptions[0].name : 'สวัสดิการอื่นๆ'
-    setEmployeeBenefits([...employeeBenefits, { name: defaultName, amount: 0 }])
+    setEmployeeBenefits(prev => [...prev, { name: defaultName, amount: 0 }])
   }
 
   // ลบรายการสวัสดิการ
   const handleRemoveBenefitRow = (index: number) => {
-    setEmployeeBenefits(employeeBenefits.filter((_, i) => i !== index))
+    setEmployeeBenefits(prev => prev.filter((_, i) => i !== index))
   }
 
   // อัปเดตรายการสวัสดิการ
   const handleBenefitChange = (index: number, field: 'name' | 'amount', value: any) => {
-    const updated = [...employeeBenefits]
-    updated[index][field] = field === 'amount' ? Number(value) : value
-    setEmployeeBenefits(updated)
+    setEmployeeBenefits(prev => {
+      const updated = [...prev]
+      updated[index] = {
+        ...updated[index],
+        [field]: field === 'amount' ? Number(value) : String(value)
+      }
+      return updated
+    })
   }
 
   // บันทึกพนักงานใหม่
@@ -85,7 +95,7 @@ export default function EmployeesPage() {
     const { error } = await supabase.from('users').insert([
       {
         ...formData,
-        benefits: employeeBenefits, // บันทึกสวัสดิการเป็น JSONB
+        benefits: employeeBenefits,
       },
     ])
 
@@ -121,7 +131,7 @@ export default function EmployeesPage() {
         </button>
       </div>
 
-      {/* ฟอร์มเพิ่มพนักงานแบบละเอียด */}
+      {/* ฟอร์มเพิ่มพนักงานแบบรายละเอียด */}
       {showAddForm && (
         <form onSubmit={handleAddEmployee} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-md mb-8 space-y-6">
           
