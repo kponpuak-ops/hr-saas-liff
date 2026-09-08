@@ -15,6 +15,9 @@ export default function EmployeesPage() {
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false)
   const [uploadingPhoto, setUploadingPhoto] = useState<boolean>(false)
 
+  // State สำหรับ Pop-up ขยายดูรูปภาพเต็ม
+  const [previewImage, setPreviewImage] = useState<string | null>(null)
+
   // Master Data Options
   const [departments, setDepartments] = useState<any[]>([])
   const [positions, setPositions] = useState<any[]>([])
@@ -64,7 +67,7 @@ export default function EmployeesPage() {
     if (posData && posData.length > 0) setFormData(prev => ({ ...prev, position: posData[0].title }))
   }
 
-  // ฟังก์ชันอัปโหลดรูปเข้า Supabase Storage
+  // อัปโหลดไฟล์รูปภาพ
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -147,6 +150,19 @@ export default function EmployeesPage() {
     setIsSubmitting(false)
   }
 
+  // ฟังก์ชันลบพนักงาน
+  const handleDeleteEmployee = async (id: string, name: string) => {
+    if (!confirm(`คุณต้องการลบพนักงาน "${name}" ออกจากระบบใช่หรือไม่?`)) return
+
+    const { error } = await supabase.from('users').delete().eq('id', id)
+    if (error) {
+      alert('ไม่สามารถลบข้อมูลได้: ' + error.message)
+    } else {
+      alert('ลบข้อมูลพนักงานเรียบร้อยแล้ว')
+      fetchEmployees()
+    }
+  }
+
   if (isLoading) {
     return <div className="p-4 text-slate-500 font-medium">กำลังโหลดข้อมูลระบบ...</div>
   }
@@ -168,6 +184,7 @@ export default function EmployeesPage() {
         </button>
       </div>
 
+      {/* ฟอร์มบันทึกพนักงานใหม่ */}
       {showAddForm && (
         <form onSubmit={handleAddEmployee} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-md mb-8 space-y-6">
           
@@ -198,7 +215,6 @@ export default function EmployeesPage() {
                 />
               </div>
 
-              {/* อัปโหลดไฟล์รูปภาพ */}
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">รูปถ่ายพนักงาน</label>
                 <div className="flex items-center gap-3">
@@ -214,7 +230,7 @@ export default function EmployeesPage() {
                     accept="image/*"
                     onChange={handleFileUpload}
                     disabled={uploadingPhoto}
-                    className="text-xs text-slate-500 file:mr-2 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
+                    className="text-xs text-slate-500 file:mr-2 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer"
                   />
                 </div>
                 {uploadingPhoto && <span className="text-xs text-amber-600 mt-1 block">กำลังอัปโหลดรูปภาพ...</span>}
@@ -392,6 +408,7 @@ export default function EmployeesPage() {
                 <th className="pb-3">ฐานเงินเดือน</th>
                 <th className="pb-3">สวัสดิการ</th>
                 <th className="pb-3">สถานะ LINE</th>
+                <th className="pb-3 text-right">จัดการ</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -399,13 +416,24 @@ export default function EmployeesPage() {
                 <tr key={emp.id} className="hover:bg-slate-50 transition-colors text-sm">
                   <td className="py-4">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-sm overflow-hidden">
+                      {/* รูปโปรไฟล์ กดแล้วขยายรูปใหญ่ได้ */}
+                      <button
+                        type="button"
+                        title="คลิกเพื่อดูรูปขนาดใหญ่"
+                        onClick={() => emp.avatar_url && setPreviewImage(emp.avatar_url)}
+                        className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-sm overflow-hidden border border-slate-200 hover:ring-2 hover:ring-indigo-500 transition-all cursor-pointer relative group"
+                      >
                         {emp.avatar_url ? (
                           <img src={emp.avatar_url} alt="" className="w-full h-full object-cover" />
                         ) : (
                           `${emp.first_name[0] || ''}`
                         )}
-                      </div>
+                        {emp.avatar_url && (
+                          <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-[10px] transition-opacity">
+                            🔍
+                          </div>
+                        )}
+                      </button>
                       <div>
                         <div className="font-bold text-slate-800">{emp.first_name} {emp.last_name}</div>
                         <div className="text-xs text-slate-400">สิทธิ์: {emp.role}</div>
@@ -447,12 +475,42 @@ export default function EmployeesPage() {
                       </span>
                     )}
                   </td>
+                  <td className="py-4 text-right">
+                    <button
+                      onClick={() => handleDeleteEmployee(emp.id, `${emp.first_name} ${emp.last_name}`)}
+                      className="px-2.5 py-1 text-rose-600 hover:bg-rose-50 rounded-lg text-xs font-bold transition-colors"
+                      title="ลบพนักงานคนนี้"
+                    >
+                      🗑️ ลบ
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       </div>
+
+      {/* Pop-up แสดงรูปภาพขนาดใหญ่เมื่อแอดมินคลิกรูปโปรไฟล์ */}
+      {previewImage && (
+        <div
+          className="fixed inset-0 bg-slate-900/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in"
+          onClick={() => setPreviewImage(null)}
+        >
+          <div className="relative max-w-lg w-full bg-white rounded-2xl overflow-hidden shadow-2xl p-2" onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={() => setPreviewImage(null)}
+              className="absolute top-4 right-4 w-8 h-8 bg-slate-800/80 text-white rounded-full flex items-center justify-center font-bold text-sm hover:bg-slate-900 transition-colors shadow-md z-10"
+            >
+              ✕
+            </button>
+            <div className="flex justify-center items-center bg-slate-100 rounded-xl overflow-hidden min-h-[300px]">
+              <img src={previewImage} alt="รูปพนักงานแบบขยาย" className="w-full h-auto max-h-[80vh] object-contain rounded-xl" />
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
