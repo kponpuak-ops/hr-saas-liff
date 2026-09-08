@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import liff from '@line/liff'
 import { supabase } from '../../lib/supabase'
+import Link from 'next/link'
 
 export default function LiffPage() {
     const [isLiffReady, setIsLiffReady] = useState(false)
@@ -228,6 +229,13 @@ export default function LiffPage() {
                                     </button>
                                 </div>
                             )}
+                            // วางปุ่มนี้ไว้ใต้ปุ่มลงเวลาเข้า-ออกงานเดิม
+                            <Link
+                                href="/liff/leave"
+                                className="block w-full text-center bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium py-3 rounded-xl transition-colors mt-3"
+                            >
+                                📝 ยื่นใบลา
+                            </Link>
 
                             {/* สเตป 3: ลงเวลาออกงานแล้ว */}
                             {attendanceToday && attendanceToday.check_out_time && (
