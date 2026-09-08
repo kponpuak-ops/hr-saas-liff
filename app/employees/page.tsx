@@ -805,13 +805,25 @@ export default function EmployeesPage() {
             <div className="p-6 overflow-y-auto space-y-6">
               {/* ข้อมูลพนักงานเบื้องต้น */}
               <div className="flex items-center gap-4 border border-slate-200 p-4 rounded-xl shadow-sm">
-                <div className="w-16 h-16 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-2xl overflow-hidden border border-slate-200 shrink-0">
+                <button
+                  type="button"
+                  title={selectedProfile.avatar_url ? "คลิกเพื่อดูรูปขนาดใหญ่" : ""}
+                  onClick={() => selectedProfile.avatar_url && setPreviewImage(selectedProfile.avatar_url)}
+                  className={`w-16 h-16 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-2xl overflow-hidden border border-slate-200 shrink-0 relative group ${
+                    selectedProfile.avatar_url ? 'cursor-pointer hover:ring-2 hover:ring-indigo-500 transition-all' : 'cursor-default'
+                  }`}
+                >
                   {selectedProfile.avatar_url ? (
-                    <img src={selectedProfile.avatar_url} alt="Profile" className="w-full h-full object-cover" />
+                    <>
+                      <img src={selectedProfile.avatar_url} alt="Profile" className="w-full h-full object-cover" />
+                      <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-sm transition-opacity">
+                        🔍
+                      </div>
+                    </>
                   ) : (
                     selectedProfile.first_name?.[0]
                   )}
-                </div>
+                </button>
                 <div>
                   <h3 className="text-lg font-bold text-slate-800">{selectedProfile.first_name} {selectedProfile.last_name}</h3>
                   <div className="text-sm font-medium text-slate-500 mt-0.5">
