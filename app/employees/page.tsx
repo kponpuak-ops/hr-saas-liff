@@ -34,12 +34,13 @@ export default function EmployeesPage() {
   const [positions, setPositions] = useState<any[]>([])
   const [benefitOptions, setBenefitOptions] = useState<any[]>([])
 
-  // Form State Initial Value
+  // Form State Initial Value (เพิ่ม email, payment_method, bank_account)
   const initialFormState = {
     employee_id: '',
     first_name: '',
     last_name: '',
     role: 'Staff',
+    email: '',
     phone: '',
     emergency_contact: '',
     address: '',
@@ -47,6 +48,8 @@ export default function EmployeesPage() {
     employment_type: 'full_time',
     base_salary: 15000,
     daily_rate: 500,
+    payment_method: 'transfer', // 'transfer' | 'cash'
+    bank_account: '',
     department: '',
     position: '',
     start_date: new Date().toISOString().split('T')[0],
@@ -158,7 +161,6 @@ export default function EmployeesPage() {
     }
   }
 
-  // จัดการ Dynamic Benefit Rows
   const handleAddBenefitRow = () => {
     const defaultName = benefitOptions.length > 0 ? benefitOptions[0].name : 'สวัสดิการอื่นๆ'
     setEmployeeBenefits(prev => [...prev, { name: defaultName, amount: 0 }])
@@ -179,7 +181,7 @@ export default function EmployeesPage() {
     })
   }
 
-  // เปิดฟอร์มแก้ไข
+  // เปิดฟอร์มแก้ไข (เพิ่มข้อมูลใหม่)
   const handleEditClick = (emp: any) => {
     setEditingEmployeeId(emp.id)
     setFormData({
@@ -187,6 +189,7 @@ export default function EmployeesPage() {
       first_name: emp.first_name || '',
       last_name: emp.last_name || '',
       role: emp.role || 'Staff',
+      email: emp.email || '',
       phone: emp.phone || '',
       emergency_contact: emp.emergency_contact || '',
       address: emp.address || '',
@@ -194,6 +197,8 @@ export default function EmployeesPage() {
       employment_type: emp.employment_type || 'full_time',
       base_salary: emp.base_salary || 0,
       daily_rate: emp.daily_rate || 0,
+      payment_method: emp.payment_method || 'transfer',
+      bank_account: emp.bank_account || '',
       department: emp.department || (departments[0]?.name || ''),
       position: emp.position || (positions[0]?.title || ''),
       start_date: emp.start_date || new Date().toISOString().split('T')[0],
@@ -282,7 +287,6 @@ export default function EmployeesPage() {
 
   return (
     <div className="pb-12 space-y-6">
-      {/* Header */}
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">👥 จัดการรายชื่อพนักงาน</h1>
@@ -301,7 +305,6 @@ export default function EmployeesPage() {
         </button>
       </div>
 
-      {/* Filter & Search Bar */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row gap-3 justify-between items-center">
         <div className="w-full md:w-80">
           <input
@@ -337,10 +340,8 @@ export default function EmployeesPage() {
         </div>
       </div>
 
-      {/* ฟอร์มบันทึก / แก้ไขพนักงาน */}
       {showAddForm && (
         <form onSubmit={handleSaveEmployee} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-md space-y-6 animate-fade-in">
-          
           <div className="flex justify-between items-center border-b pb-3">
             <h2 className="text-lg font-bold text-indigo-900 flex items-center gap-2">
               {editingEmployeeId ? '✏️ แก้ไขข้อมูลพนักงาน' : '➕ เพิ่มพนักงานใหม่'}
@@ -348,7 +349,7 @@ export default function EmployeesPage() {
             <span className="text-xs text-slate-400">ID: {editingEmployeeId || 'ใหม่'}</span>
           </div>
 
-          {/* หมวดที่ 1: ข้อมูลส่วนตัวและรูปถ่าย */}
+          {/* หมวดที่ 1 */}
           <div>
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">👤 ข้อมูลส่วนตัวและรูปถ่าย</h3>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
@@ -382,7 +383,6 @@ export default function EmployeesPage() {
                   onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
                 />
               </div>
-
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">รูปถ่ายพนักงาน</label>
                 <div className="flex items-center gap-3">
@@ -406,7 +406,7 @@ export default function EmployeesPage() {
             </div>
           </div>
 
-          {/* หมวดที่ 2: โครงสร้างองค์กร & ประเภทการจ้างงาน */}
+          {/* หมวดที่ 2 */}
           <div>
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">🏢 โครงสร้างองค์กร & ประเภทการจ้างงาน</h3>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -458,7 +458,7 @@ export default function EmployeesPage() {
             </div>
           </div>
 
-          {/* หมวดที่ 3: กำหนดประเภทการจ้างงาน & ค่าตอบแทน */}
+          {/* หมวดที่ 3 */}
           <div className="bg-indigo-50/50 p-5 rounded-2xl border border-indigo-100 space-y-4">
             <h3 className="text-xs font-bold text-indigo-900 uppercase tracking-wider">💳 ประเภทการจ้างงาน และ ค่าตอบแทนหลัก</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
@@ -504,7 +504,37 @@ export default function EmployeesPage() {
             </div>
           </div>
 
-          {/* หมวดที่ 4: สวัสดิการเพิ่มเติม */}
+          {/* หมวดที่ 4: ช่องทางการรับเงิน */}
+          <div>
+            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">🏦 ข้อมูลบัญชีรับเงิน</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">ช่องทางการรับเงิน</label>
+                <select
+                  className="w-full p-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-500 outline-none"
+                  value={formData.payment_method}
+                  onChange={(e) => setFormData({ ...formData, payment_method: e.target.value })}
+                >
+                  <option value="transfer">🏦 โอนเข้าบัญชีธนาคาร</option>
+                  <option value="cash">💵 รับเป็นเงินสด</option>
+                </select>
+              </div>
+              {formData.payment_method === 'transfer' && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">ข้อมูลบัญชีธนาคาร (ชื่อธนาคาร / เลขบัญชี)</label>
+                  <input
+                    type="text"
+                    placeholder="เช่น กสิกรไทย 012-3-45678-9"
+                    className="w-full p-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                    value={formData.bank_account}
+                    onChange={(e) => setFormData({ ...formData, bank_account: e.target.value })}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* หมวดที่ 5: สวัสดิการเพิ่มเติม */}
           <div>
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">🎁 สวัสดิการและเงินบวกประจำเดือน</h3>
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
@@ -552,10 +582,20 @@ export default function EmployeesPage() {
             </div>
           </div>
 
-          {/* หมวดที่ 5: ช่องทางการติดต่อ */}
+          {/* หมวดที่ 6: ช่องทางการติดต่อ */}
           <div>
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">📞 ช่องทางการติดต่อ</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">อีเมล (Email)</label>
+                <input
+                  type="email"
+                  placeholder="email@example.com"
+                  className="w-full p-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                />
+              </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">เบอร์โทรศัพท์ติดต่อ</label>
                 <input
@@ -567,7 +607,7 @@ export default function EmployeesPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">เบอร์ติดต่อฉุกเฉิน (พร้อมชื่อผู้ติดต่อ)</label>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">เบอร์ติดต่อฉุกเฉิน (ชื่อผู้ติดต่อ)</label>
                 <input
                   type="text"
                   placeholder="08X-XXX-XXXX (คุณแม่)"
@@ -777,9 +817,17 @@ export default function EmployeesPage() {
                   <div className="text-sm font-medium text-slate-500 mt-0.5">
                     {selectedProfile.position || '-'} • {selectedProfile.department || '-'}
                   </div>
-                  <div className="text-xs text-slate-400 mt-1 flex gap-3">
-                    <span>ID: {selectedProfile.employee_id || '-'}</span>
-                    <span>📞 {selectedProfile.phone || '-'}</span>
+                  <div className="text-xs text-slate-500 mt-1 flex flex-col gap-1">
+                    <div className="flex gap-4">
+                      <span><span className="font-bold">ID:</span> {selectedProfile.employee_id || '-'}</span>
+                      <span><span className="font-bold">📞</span> {selectedProfile.phone || '-'}</span>
+                    </div>
+                    <div className="flex gap-4">
+                      <span><span className="font-bold">✉️</span> {selectedProfile.email || '-'}</span>
+                      <span>
+                        <span className="font-bold">🏦</span> {selectedProfile.payment_method === 'cash' ? 'รับเงินสด' : `โอนเข้าบัญชี (${selectedProfile.bank_account || 'ไม่ได้ระบุ'})`}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -854,7 +902,6 @@ export default function EmployeesPage() {
           </div>
         </div>
       )}
-
     </div>
   )
 }
