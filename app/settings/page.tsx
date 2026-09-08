@@ -32,13 +32,20 @@ export default function SettingsPage() {
         late_deduction_per_minute: 0,
     })
 
-    // --- 3. Holiday Calendar State (เพิ่ม ot_rate) ---
+    // --- 3. Social Security State (ประกันสังคม) ---
+    const [ssEnabled, setSsEnabled] = useState<boolean>(true)
+    const [ssEmployeeRate, setSsEmployeeRate] = useState<number>(5.0)
+    const [ssEmployerRate, setSsEmployerRate] = useState<number>(5.0)
+    const [ssMinSalary, setSsMinSalary] = useState<number>(1650)
+    const [ssMaxSalary, setSsMaxSalary] = useState<number>(15000)
+
+    // --- 4. Holiday Calendar State ---
     const [holidays, setHolidays] = useState<any[]>([])
     const [newHoliday, setNewHoliday] = useState({
         holiday_date: '',
         name: '',
-        type: 'traditional', // 'weekly' | 'traditional' | 'company'
-        ot_rate: 2.0, // 👈 เพิ่มค่าเริ่มต้นคูณ OT (2 เท่าสำหรับวันหยุด)
+        type: 'traditional',
+        ot_rate: 2.0,
     })
 
     useEffect(() => {
@@ -74,6 +81,13 @@ export default function SettingsPage() {
             setDefaultEndTime(data.default_end_time?.substring(0, 5) || '17:30')
             setLateBufferMinutes(data.late_buffer_minutes || 0)
             setLateDeduction(data.late_deduction_per_minute || 0)
+
+            // ดึงค่าประกันสังคม
+            setSsEnabled(data.ss_enabled ?? true)
+            setSsEmployeeRate(data.ss_employee_rate ?? 5.0)
+            setSsEmployerRate(data.ss_employer_rate ?? 5.0)
+            setSsMinSalary(data.ss_min_salary ?? 1650)
+            setSsMaxSalary(data.ss_max_salary ?? 15000)
         }
     }
 
@@ -87,7 +101,7 @@ export default function SettingsPage() {
         if (data) setHolidays(data)
     }
 
-    // --- Handlers: Work Settings ---
+    // --- Handlers: Work Settings & Social Security ---
     const handleSaveWorkSettings = async () => {
         setIsSavingSettings(true)
         const { error } = await supabase.from('company_settings').upsert({
@@ -97,11 +111,16 @@ export default function SettingsPage() {
             default_end_time: defaultEndTime,
             late_buffer_minutes: lateBufferMinutes,
             late_deduction_per_minute: lateDeduction,
+            ss_enabled: ssEnabled,
+            ss_employee_rate: ssEmployeeRate,
+            ss_employer_rate: ssEmployerRate,
+            ss_min_salary: ssMinSalary,
+            ss_max_salary: ssMaxSalary,
             updated_at: new Date().toISOString(),
         })
 
         if (error) alert('บันทึกไม่สำเร็จ: ' + error.message)
-        else alert('บันทึกการตั้งค่าเวลาทำงานเรียบร้อยแล้ว')
+        else alert('บันทึกการตั้งค่าเรียบร้อยแล้ว')
         setIsSavingSettings(false)
     }
 
@@ -173,24 +192,24 @@ export default function SettingsPage() {
     return (
         <div className="pb-12">
             <h1 className="text-2xl font-bold text-slate-800 mb-1">ตั้งค่าองค์กร (Organization Settings)</h1>
-            <p className="text-slate-500 text-sm mb-6">กำหนดเวลาทำงาน ระบบกะ ปฏิทินวันหยุด และโครงสร้างองค์กร</p>
+            <p className="text-slate-500 text-sm mb-6">กำหนดเวลาทำงาน ระบบกะ ประกันสังคม ปฏิทินวันหยุด และโครงสร้างองค์กร</p>
 
             {/* ปุ่มสลับแท็บ */}
             <div className="flex border-b border-slate-200 mb-6 gap-2">
                 <button
                     onClick={() => setActiveTab('work_hours')}
                     className={`pb-3 px-4 font-bold text-sm transition-all border-b-2 ${activeTab === 'work_hours'
-                            ? 'border-indigo-600 text-indigo-600'
-                            : 'border-transparent text-slate-400 hover:text-slate-600'
+                        ? 'border-indigo-600 text-indigo-600'
+                        : 'border-transparent text-slate-400 hover:text-slate-600'
                         }`}
                 >
-                    ⏰ เวลาทำงาน & กะการทำงาน
+                    ⏰ เวลาทำงาน, กะ & ประกันสังคม
                 </button>
                 <button
                     onClick={() => setActiveTab('holidays')}
                     className={`pb-3 px-4 font-bold text-sm transition-all border-b-2 ${activeTab === 'holidays'
-                            ? 'border-indigo-600 text-indigo-600'
-                            : 'border-transparent text-slate-400 hover:text-slate-600'
+                        ? 'border-indigo-600 text-indigo-600'
+                        : 'border-transparent text-slate-400 hover:text-slate-600'
                         }`}
                 >
                     📅 ปฏิทินวันหยุดองค์กร
@@ -198,15 +217,15 @@ export default function SettingsPage() {
                 <button
                     onClick={() => setActiveTab('structure')}
                     className={`pb-3 px-4 font-bold text-sm transition-all border-b-2 ${activeTab === 'structure'
-                            ? 'border-indigo-600 text-indigo-600'
-                            : 'border-transparent text-slate-400 hover:text-slate-600'
+                        ? 'border-indigo-600 text-indigo-600'
+                        : 'border-transparent text-slate-400 hover:text-slate-600'
                         }`}
                 >
                     🏢 โครงสร้างองค์กร (แผนก/ตำแหน่ง)
                 </button>
             </div>
 
-            {/* TABS 1: เวลาทำงาน & กะการทำงาน */}
+            {/* TABS 1: เวลาทำงาน & ประกันสังคม */}
             {activeTab === 'work_hours' && (
                 <div className="space-y-6 animate-fade-in">
                     <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
@@ -385,21 +404,88 @@ export default function SettingsPage() {
                                 </div>
                             </div>
                         )}
+                    </div>
 
-                        <div className="mt-6 flex justify-end">
-                            <button
-                                onClick={handleSaveWorkSettings}
-                                disabled={isSavingSettings}
-                                className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm transition-all shadow-md"
-                            >
-                                {isSavingSettings ? 'กำลังบันทึก...' : '💾 บันทึกการตั้งค่ารูปแบบการเข้างาน'}
-                            </button>
+                    {/* กล่องตั้งค่าประกันสังคม */}
+                    <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                        <div className="flex items-center justify-between mb-4">
+                            <div>
+                                <h2 className="text-base font-bold text-slate-800">🛡️ การตั้งค่าประกันสังคม (Social Security)</h2>
+                                <p className="text-xs text-slate-500 mt-0.5">กำหนดอัตราหักและฐานเงินเดือนตามกฎหมายประกันสังคม</p>
+                            </div>
+                            <label className="flex items-center gap-2 cursor-pointer bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">
+                                <input
+                                    type="checkbox"
+                                    checked={ssEnabled}
+                                    onChange={(e) => setSsEnabled(e.target.checked)}
+                                    className="w-4 h-4 accent-indigo-600 rounded"
+                                />
+                                <span className="text-xs font-bold text-slate-700">เปิดใช้งานคำนวณประกันสังคม</span>
+                            </label>
                         </div>
+
+                        {ssEnabled && (
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                                <div>
+                                    <label className="block text-xs font-semibold text-slate-600 mb-1">หักฝั่งพนักงาน (%)</label>
+                                    <input
+                                        type="number"
+                                        step="0.1"
+                                        min="0"
+                                        max="100"
+                                        className="w-full p-2.5 border border-slate-300 rounded-lg text-sm bg-white outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
+                                        value={ssEmployeeRate}
+                                        onChange={(e) => setSsEmployeeRate(Number(e.target.value))}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-semibold text-slate-600 mb-1">สมทบฝั่งนายจ้าง (%)</label>
+                                    <input
+                                        type="number"
+                                        step="0.1"
+                                        min="0"
+                                        max="100"
+                                        className="w-full p-2.5 border border-slate-300 rounded-lg text-sm bg-white outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
+                                        value={ssEmployerRate}
+                                        onChange={(e) => setSsEmployerRate(Number(e.target.value))}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-semibold text-slate-600 mb-1">ฐานเงินเดือนต่ำสุด (บาท)</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        className="w-full p-2.5 border border-slate-300 rounded-lg text-sm bg-white outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
+                                        value={ssMinSalary}
+                                        onChange={(e) => setSsMinSalary(Number(e.target.value))}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-semibold text-slate-600 mb-1">ฐานเงินเดือนสูงสุด (บาท)</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        className="w-full p-2.5 border border-indigo-300 bg-indigo-50/50 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-indigo-700"
+                                        value={ssMaxSalary}
+                                        onChange={(e) => setSsMaxSalary(Number(e.target.value))}
+                                    />
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="flex justify-end">
+                        <button
+                            onClick={handleSaveWorkSettings}
+                            disabled={isSavingSettings}
+                            className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm transition-all shadow-md"
+                        >
+                            {isSavingSettings ? 'กำลังบันทึก...' : '💾 บันทึกการตั้งค่าทั้งหมด'}
+                        </button>
                     </div>
                 </div>
             )}
-
-            {/* TABS 2: ปฏิทินวันหยุดองค์กร (เพิ่มช่องตัวคูณ OT) */}
+            {/* TABS 2: ปฏิทินวันหยุดองค์กร */}
             {activeTab === 'holidays' && (
                 <div className="space-y-6 animate-fade-in">
                     <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
@@ -463,7 +549,6 @@ export default function SettingsPage() {
                             </div>
                         </form>
 
-                        {/* รายการวันหยุดที่บันทึกแล้ว */}
                         <h3 className="font-bold text-sm text-slate-800 mb-3">รายการวันหยุดทั้งหมดในระบบ</h3>
                         <div className="overflow-x-auto">
                             <table className="w-full text-left border-collapse">
