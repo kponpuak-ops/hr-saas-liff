@@ -15,7 +15,6 @@ export default function AttendanceAdminPage() {
   const fetchData = async () => {
     setLoading(true)
     try {
-      // 1. ดึงการตั้งค่าบริษัท (เวลามาตรฐาน, หักเงิน, บัฟเฟอร์สาย)
       const { data: companySettings } = await supabase
         .from('company_settings')
         .select('*')
@@ -24,16 +23,16 @@ export default function AttendanceAdminPage() {
       
       setSettings(companySettings)
 
-      // 2. ดึงประวัติลงเวลา + ข้อมูลพนักงาน + ข้อมูลกะ
+      // 👈 แก้ไขจุดนี้: เอา employee_id ออกจาก users (...)
       const { data: attendanceData, error } = await supabase
         .from('attendance')
         .select(`
           *,
-          users (first_name, last_name, employee_id, avatar_url, position),
+          users (first_name, last_name, avatar_url, position),
           work_shifts (shift_name, start_time, end_time)
         `)
         .order('action_date', { ascending: false })
-        .order('id', { ascending: false }) // เรียงตาม ID ล่าสุด เพื่อให้เห็นกะที่ 2 อยู่บนสุด
+        .order('id', { ascending: false })
 
       if (error) throw error
       setRecords(attendanceData || [])
