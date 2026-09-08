@@ -269,7 +269,7 @@ export default function LiffAttendancePage() {
         </div>
 
         {/* เมนูลัด (Quick Actions) */}
-        <div className="mt-4 grid grid-cols-3 gap-3">
+        <div className="mt-4 grid grid-cols-2 gap-3">
           <Link className="p-4 bg-white border border-slate-200 rounded-2xl text-slate-700 font-bold text-sm shadow-sm hover:bg-slate-50 flex flex-col items-center gap-2 transition-colors" href="/liff/leave">
             <span className="text-2xl">📝</span>
             <span className="text-xs">ยื่นใบลา</span>
@@ -281,6 +281,10 @@ export default function LiffAttendancePage() {
           <Link className="p-4 bg-white border border-slate-200 rounded-2xl text-slate-700 font-bold text-sm shadow-sm hover:bg-slate-50 flex flex-col items-center gap-2 transition-colors" href="/liff/ot">
             <span className="text-2xl">⏱️</span>
             <span className="text-xs text-center">ยื่นขอ OT</span>
+          </Link>
+          <Link className="p-4 bg-white border border-slate-200 rounded-2xl text-slate-700 font-bold text-sm shadow-sm hover:bg-slate-50 flex flex-col items-center gap-2 transition-colors" href="/liff/ot-history">
+            <span className="text-2xl">⏳</span>
+            <span className="text-xs text-center">ประวัติ OT</span>
           </Link>
         </div>
       </div>
