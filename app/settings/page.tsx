@@ -4,11 +4,15 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
 
 export default function SettingsPage() {
-  const [companyName, setCompanyName] = useState('')
-  const [checkInTime, setCheckInTime] = useState('09:00')
-  const [isLoading, setIsLoading] = useState(true)
-  const [isSaving, setIsSaving] = useState(false)
-  const [message, setMessage] = useState('')
+  const [departments, setDepartments] = useState<any[]>([])
+  const [positions, setPositions] = useState<any[]>([])
+  const [benefits, setBenefits] = useState<any[]>([])
+  const [isLoading, setIsLoading] = useState<boolean>(true)
+
+  // Input States
+  const [newDept, setNewDept] = useState('')
+  const [newPos, setNewPos] = useState('')
+  const [newBenefit, setNewBenefit] = useState('')
 
   useEffect(() => {
     fetchSettings()
@@ -16,95 +20,128 @@ export default function SettingsPage() {
 
   const fetchSettings = async () => {
     setIsLoading(true)
-    const { data } = await supabase
-      .from('companies')
-      .select('*')
-      .eq('id', 1)
-      .single()
+    const { data: deptData } = await supabase.from('departments').select('*').order('id', { ascending: true })
+    const { data: posData } = await supabase.from('positions').select('*').order('id', { ascending: true })
+    const { data: benData } = await supabase.from('benefit_master').select('*').order('id', { ascending: true })
 
-    if (data) {
-      setCompanyName(data.company_name || '')
-      if (data.check_in_time) {
-        setCheckInTime(data.check_in_time.slice(0, 5)) // ตัดเอาเฉพาะ HH:mm
-      }
-    }
+    if (deptData) setDepartments(deptData)
+    if (posData) setPositions(posData)
+    if (benData) setBenefits(benData)
     setIsLoading(false)
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setIsSaving(true)
-    setMessage('')
-
-    const { error } = await supabase
-      .from('companies')
-      .update({
-        company_name: companyName,
-        check_in_time: checkInTime,
-      })
-      .eq('id', 1)
-
-    if (error) {
-      setMessage('เกิดข้อผิดพลาดในการบันทึกข้อมูล')
-    } else {
-      setMessage('บันทึกการตั้งค่าเรียบร้อยแล้ว!')
+  // Add Master Item
+  const handleAdd = async (table: string, fieldName: string, value: string, resetFn: () => void) => {
+    if (!value.trim()) return
+    const { error } = await supabase.from(table).insert([{ [fieldName]: value.trim() }])
+    if (error) alert('เกิดข้อผิดพลาด: ' + error.message)
+    else {
+      resetFn()
+      fetchSettings()
     }
-    setIsSaving(false)
   }
 
-  if (isLoading) {
-    return <div className="p-4 text-slate-500 font-medium">กำลังโหลดข้อมูล...</div>
+  // Delete Master Item
+  const handleDelete = async (table: string, id: number) => {
+    if (!confirm('คุณต้องการลบรายการนี้ใช่หรือไม่?')) return
+    const { error } = await supabase.from(table).delete().eq('id', id)
+    if (error) alert('ไม่สามารถลบได้เนื่องจากมีการใช้งานอยู่')
+    else fetchSettings()
   }
+
+  if (isLoading) return <div className="p-4 text-slate-500 font-medium">กำลังโหลดข้อมูลการตั้งค่า...</div>
 
   return (
-    <div className="max-w-2xl">
-      <h1 className="text-2xl font-bold text-slate-800 mb-6">ตั้งค่าองค์กร (Company Settings)</h1>
+    <div className="pb-12">
+      <h1 className="text-2xl font-bold text-slate-800 mb-2">ตั้งค่าองค์กร (Organization Master Data)</h1>
+      <p className="text-slate-500 text-sm mb-8">กำหนดแผนก ตำแหน่งงาน และสวัสดิการ สำหรับใช้เลือกในระบบ HR</p>
 
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-        {message && (
-          <div className={`mb-4 p-3 rounded-lg text-sm text-center font-medium ${message.includes('เกิดข้อผิดพลาด') ? 'bg-rose-50 text-rose-600' : 'bg-green-50 text-green-700'}`}>
-            {message}
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">
-              ชื่อบริษัท / องค์กร
-            </label>
-            <input 
-              type="text" 
-              required
-              value={companyName}
-              onChange={(e) => setCompanyName(e.target.value)}
-              className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        
+        {/* 1. จัดการแผนก */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+          <h2 className="font-bold text-slate-800 mb-4 flex items-center gap-2">🏢 รายชื่อแผนก</h2>
+          <div className="flex gap-2 mb-4">
+            <input
+              type="text"
+              placeholder="ชื่อแผนกใหม่..."
+              className="w-full p-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+              value={newDept}
+              onChange={(e) => setNewDept(e.target.value)}
             />
+            <button
+              onClick={() => handleAdd('departments', 'name', newDept, () => setNewDept(''))}
+              className="px-3 py-2 bg-indigo-600 text-white rounded-lg font-bold text-xs hover:bg-indigo-700"
+            >
+              เพิ่ม
+            </button>
           </div>
+          <ul className="divide-y divide-slate-100 text-sm">
+            {departments.map((d) => (
+              <li key={d.id} className="py-2.5 flex justify-between items-center text-slate-700">
+                <span>{d.name}</span>
+                <button onClick={() => handleDelete('departments', d.id)} className="text-rose-500 hover:text-rose-700 text-xs font-bold">🗑️</button>
+              </li>
+            ))}
+          </ul>
+        </div>
 
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">
-              เวลาเข้างานมาตรฐาน (สำหรับคำนวณการมาสาย)
-            </label>
-            <input 
-              type="time" 
-              required
-              value={checkInTime}
-              onChange={(e) => setCheckInTime(e.target.value)}
-              className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+        {/* 2. จัดการตำแหน่ง */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+          <h2 className="font-bold text-slate-800 mb-4 flex items-center gap-2">💼 ตำแหน่งงาน</h2>
+          <div className="flex gap-2 mb-4">
+            <input
+              type="text"
+              placeholder="ชื่อตำแหน่งใหม่..."
+              className="w-full p-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+              value={newPos}
+              onChange={(e) => setNewPos(e.target.value)}
             />
-            <p className="text-xs text-slate-400 mt-1">
-              พนักงานที่กดลงเวลาหลังจากเวลานี้ ระบบจะแสดงสถานะ "มาสาย" ในรายงาน
-            </p>
+            <button
+              onClick={() => handleAdd('positions', 'title', newPos, () => setNewPos(''))}
+              className="px-3 py-2 bg-indigo-600 text-white rounded-lg font-bold text-xs hover:bg-indigo-700"
+            >
+              เพิ่ม
+            </button>
           </div>
+          <ul className="divide-y divide-slate-100 text-sm">
+            {positions.map((p) => (
+              <li key={p.id} className="py-2.5 flex justify-between items-center text-slate-700">
+                <span>{p.title}</span>
+                <button onClick={() => handleDelete('positions', p.id)} className="text-rose-500 hover:text-rose-700 text-xs font-bold">🗑️</button>
+              </li>
+            ))}
+          </ul>
+        </div>
 
-          <button 
-            type="submit" 
-            disabled={isSaving}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium px-6 py-3 rounded-xl transition-colors disabled:opacity-50"
-          >
-            {isSaving ? 'กำลังบันทึก...' : 'บันทึกการตั้งค่า'}
-          </button>
-        </form>
+        {/* 3. จัดการสวัสดิการ */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+          <h2 className="font-bold text-slate-800 mb-4 flex items-center gap-2">🎁 ประเภทสวัสดิการ</h2>
+          <div className="flex gap-2 mb-4">
+            <input
+              type="text"
+              placeholder="สวัสดิการใหม่..."
+              className="w-full p-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+              value={newBenefit}
+              onChange={(e) => setNewBenefit(e.target.value)}
+            />
+            <button
+              onClick={() => handleAdd('benefit_master', 'name', newBenefit, () => setNewBenefit(''))}
+              className="px-3 py-2 bg-indigo-600 text-white rounded-lg font-bold text-xs hover:bg-indigo-700"
+            >
+              เพิ่ม
+            </button>
+          </div>
+          <ul className="divide-y divide-slate-100 text-sm">
+            {benefits.map((b) => (
+              <li key={b.id} className="py-2.5 flex justify-between items-center text-slate-700">
+                <span>{b.name}</span>
+                <button onClick={() => handleDelete('benefit_master', b.id)} className="text-rose-500 hover:text-rose-700 text-xs font-bold">🗑️</button>
+              </li>
+            ))}
+          </ul>
+        </div>
+
       </div>
     </div>
   )

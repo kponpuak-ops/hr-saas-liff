@@ -13,6 +13,7 @@ export default function EmployeesPage() {
   const [isLoading, setIsLoading] = useState<boolean>(true)
   const [showAddForm, setShowAddForm] = useState<boolean>(false)
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false)
+  const [uploadingPhoto, setUploadingPhoto] = useState<boolean>(false)
 
   // Master Data Options
   const [departments, setDepartments] = useState<any[]>([])
@@ -33,7 +34,6 @@ export default function EmployeesPage() {
     position: '',
   })
 
-  // Dynamic Benefits State
   const [employeeBenefits, setEmployeeBenefits] = useState<BenefitItem[]>([])
 
   useEffect(() => {
@@ -52,9 +52,9 @@ export default function EmployeesPage() {
   }
 
   const fetchMasterData = async () => {
-    const { data: deptData } = await supabase.from('departments').select('*')
-    const { data: posData } = await supabase.from('positions').select('*')
-    const { data: benData } = await supabase.from('benefit_master').select('*')
+    const { data: deptData } = await supabase.from('departments').select('*').order('id', { ascending: true })
+    const { data: posData } = await supabase.from('positions').select('*').order('id', { ascending: true })
+    const { data: benData } = await supabase.from('benefit_master').select('*').order('id', { ascending: true })
 
     if (deptData) setDepartments(deptData)
     if (posData) setPositions(posData)
@@ -64,18 +64,44 @@ export default function EmployeesPage() {
     if (posData && posData.length > 0) setFormData(prev => ({ ...prev, position: posData[0].title }))
   }
 
-  // เพิ่มรายการสวัสดิการ
+  // ฟังก์ชันอัปโหลดรูปเข้า Supabase Storage
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setUploadingPhoto(true)
+    try {
+      const fileExt = file.name.split('.').pop()
+      const fileName = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${fileExt}`
+      const filePath = `${fileName}`
+
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, file)
+
+      if (uploadError) throw uploadError
+
+      const { data: publicUrlData } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(filePath)
+
+      setFormData(prev => ({ ...prev, avatar_url: publicUrlData.publicUrl }))
+    } catch (error: any) {
+      alert('อัปโหลดรูปภาพไม่สำเร็จ: ' + error.message)
+    } finally {
+      setUploadingPhoto(false)
+    }
+  }
+
   const handleAddBenefitRow = () => {
     const defaultName = benefitOptions.length > 0 ? benefitOptions[0].name : 'สวัสดิการอื่นๆ'
     setEmployeeBenefits(prev => [...prev, { name: defaultName, amount: 0 }])
   }
 
-  // ลบรายการสวัสดิการ
   const handleRemoveBenefitRow = (index: number) => {
     setEmployeeBenefits(prev => prev.filter((_, i) => i !== index))
   }
 
-  // อัปเดตรายการสวัสดิการ
   const handleBenefitChange = (index: number, field: 'name' | 'amount', value: any) => {
     setEmployeeBenefits(prev => {
       const updated = [...prev]
@@ -87,7 +113,6 @@ export default function EmployeesPage() {
     })
   }
 
-  // บันทึกพนักงานใหม่
   const handleAddEmployee = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsSubmitting(true)
@@ -104,6 +129,19 @@ export default function EmployeesPage() {
     } else {
       alert('บันทึกข้อมูลพนักงานเรียบร้อยแล้ว')
       setShowAddForm(false)
+      setFormData({
+        first_name: '',
+        last_name: '',
+        role: 'Staff',
+        phone: '',
+        emergency_contact: '',
+        address: '',
+        avatar_url: '',
+        base_salary: 0,
+        department: departments[0]?.name || '',
+        position: positions[0]?.title || '',
+      })
+      setEmployeeBenefits([])
       fetchEmployees()
     }
     setIsSubmitting(false)
@@ -115,11 +153,10 @@ export default function EmployeesPage() {
 
   return (
     <div className="pb-12">
-      {/* ส่วนหัว */}
       <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">จัดการรายชื่อพนักงาน</h1>
-          <p className="text-slate-500 text-sm">ข้อมูลส่วนตัว ฐานเงินเดือน สวัสดิการ และโครงสร้างตำแหน่ง</p>
+          <p className="text-slate-500 text-sm">ข้อมูลส่วนตัว ฐานเงินเดือน สวัสดิการ และตำแหน่งงาน</p>
         </div>
         <button
           onClick={() => setShowAddForm(!showAddForm)}
@@ -131,7 +168,6 @@ export default function EmployeesPage() {
         </button>
       </div>
 
-      {/* ฟอร์มเพิ่มพนักงานแบบรายละเอียด */}
       {showAddForm && (
         <form onSubmit={handleAddEmployee} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-md mb-8 space-y-6">
           
@@ -140,7 +176,7 @@ export default function EmployeesPage() {
             <h2 className="text-base font-bold text-indigo-900 border-b pb-2 mb-4 flex items-center gap-2">
               👤 ข้อมูลส่วนตัวและรูปถ่าย
             </h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">ชื่อจริง *</label>
                 <input
@@ -161,20 +197,32 @@ export default function EmployeesPage() {
                   onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
                 />
               </div>
+
+              {/* อัปโหลดไฟล์รูปภาพ */}
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">ลิงก์รูปถ่าย (URL Profile)</label>
-                <input
-                  type="text"
-                  placeholder="https://..."
-                  className="w-full p-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                  value={formData.avatar_url}
-                  onChange={(e) => setFormData({ ...formData, avatar_url: e.target.value })}
-                />
+                <label className="block text-xs font-semibold text-slate-600 mb-1">รูปถ่ายพนักงาน</label>
+                <div className="flex items-center gap-3">
+                  {formData.avatar_url ? (
+                    <img src={formData.avatar_url} alt="Profile" className="w-12 h-12 rounded-full object-cover border border-slate-200" />
+                  ) : (
+                    <div className="w-12 h-12 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400 text-xs">
+                      ไม่มีรูป
+                    </div>
+                  )}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleFileUpload}
+                    disabled={uploadingPhoto}
+                    className="text-xs text-slate-500 file:mr-2 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
+                  />
+                </div>
+                {uploadingPhoto && <span className="text-xs text-amber-600 mt-1 block">กำลังอัปโหลดรูปภาพ...</span>}
               </div>
             </div>
           </div>
 
-          {/* หมวดที่ 2: ตำแหน่ง และแผนก */}
+          {/* หมวดที่ 2: โครงสร้างองค์กร */}
           <div>
             <h2 className="text-base font-bold text-indigo-900 border-b pb-2 mb-4 flex items-center gap-2">
               🏢 โครงสร้างองค์กร
@@ -237,7 +285,6 @@ export default function EmployeesPage() {
               </div>
             </div>
 
-            {/* รายการสวัสดิการแบบเพิ่ม/ลบได้อิสระ */}
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
               <div className="flex justify-between items-center mb-3">
                 <span className="text-xs font-bold text-slate-700">สวัสดิการและเงินบวกเพิ่มเติม</span>
@@ -321,11 +368,10 @@ export default function EmployeesPage() {
             </div>
           </div>
 
-          {/* ปุ่มบันทึก */}
           <div className="flex justify-end pt-4 border-t border-slate-100">
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || uploadingPhoto}
               className="px-8 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow-md transition-all disabled:opacity-50"
             >
               {isSubmitting ? 'กำลังบันทึก...' : '💾 บันทึกข้อมูลพนักงาน'}
@@ -334,7 +380,7 @@ export default function EmployeesPage() {
         </form>
       )}
 
-      {/* ตารางแสดงผลรายชื่อพนักงานฉบับสมบูรณ์ */}
+      {/* ตารางแสดงพนักงาน */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto p-6">
           <table className="w-full text-left border-collapse">
