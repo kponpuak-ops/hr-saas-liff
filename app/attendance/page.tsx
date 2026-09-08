@@ -47,13 +47,16 @@ export default function AttendanceAdminPage() {
   const calculateLate = (checkInTime: string, shiftInfo: any) => {
     if (!checkInTime || !settings) return { lateMinutes: 0, penalty: 0 }
 
-    // เลือกเวลาเริ่มงาน: ถ้ามีกะให้ใช้เวลากะ ถ้าไม่มีกะให้ใช้เวลามาตรฐานบริษัท
-    const expectedStartTime = shiftInfo?.start_time || settings.work_start_time
+    // 1. ดึงเวลาเริ่มงาน, บัฟเฟอร์สาย, และอัตราหักเงิน (รองรับทั้งแบบมีกะ และเวลามาตรฐาน)
+    const expectedStartTime = shiftInfo?.start_time || settings.default_start_time
+    const buffer = shiftInfo?.late_buffer_minutes ?? settings.late_buffer_minutes ?? 0
+    const penaltyRate = shiftInfo?.late_deduction_per_minute ?? settings.late_deduction_per_minute ?? 0
+
     if (!expectedStartTime) return { lateMinutes: 0, penalty: 0 }
 
     const checkInDate = new Date(checkInTime)
     
-    // แปลงเวลาเป้าหมาย (HH:mm) มาสร้างเป็น Date object ในวันเดียวกัน
+    // แปลงเวลาเป้าหมาย (HH:mm) มาสร้างเป็น Date object ในวันและเวลาเป้าหมาย
     const [expHours, expMinutes] = expectedStartTime.split(':').map(Number)
     const expectedDate = new Date(checkInTime)
     expectedDate.setHours(expHours, expMinutes, 0, 0)
@@ -62,9 +65,9 @@ export default function AttendanceAdminPage() {
     const diffMs = checkInDate.getTime() - expectedDate.getTime()
     const diffMins = Math.floor(diffMs / 60000)
 
-    const buffer = settings.late_buffer_minutes || 0
+    // ถ้าสายเกินกว่าจำนวนนาทีที่ยืดหยุ่นได้ (Buffer)
     if (diffMins > buffer) {
-      const penalty = diffMins * (settings.late_penalty_per_minute || 0)
+      const penalty = diffMins * penaltyRate
       return { lateMinutes: diffMins, penalty }
     }
 
