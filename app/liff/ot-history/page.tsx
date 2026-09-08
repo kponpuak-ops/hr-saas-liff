@@ -7,6 +7,7 @@ import Link from 'next/link'
 
 export default function OTHistoryPage() {
   const [history, setHistory] = useState<any[]>([])
+  const [attendance, setAttendance] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   
   // State สำหรับตัวกรองเดือน (ค่าเริ่มต้นคือเดือนปัจจุบัน YYYY-MM)
@@ -28,7 +29,7 @@ export default function OTHistoryPage() {
             .single()
 
           if (userData) {
-            fetchOTHistory(userData.id)
+            fetchOTAndAttendance(userData.id)
           }
         } else {
           liff.login()
@@ -41,39 +42,82 @@ export default function OTHistoryPage() {
     initLiff()
   }, [])
 
-  const fetchOTHistory = async (userId: number) => {
-    const { data } = await supabase
-      .from('ot_requests')
-      .select('*')
-      .eq('user_id', userId)
-      .order('request_date', { ascending: false }) // เรียงตามวันที่ทำ OT จากใหม่ไปเก่า
+  const fetchOTAndAttendance = async (userId: number) => {
+    // ดึงประวัติการขอ OT และประวัติการสแกนนิ้วมาพร้อมกันเพื่อคำนวณยอดจริง
+    const [otRes, attRes] = await Promise.all([
+      supabase.from('ot_requests').select('*').eq('user_id', userId).order('request_date', { ascending: false }),
+      supabase.from('attendance').select('action_date, check_out_time').eq('user_id', userId)
+    ])
 
-    if (data) setHistory(data)
+    if (otRes.data) setHistory(otRes.data)
+    if (attRes.data) setAttendance(attRes.data)
+    
     setIsLoading(false)
   }
 
-  const calculateHours = (start: string, end: string) => {
+  // คำนวณชั่วโมงที่ "ยื่นขอ" 
+  const calculateRequestedHours = (start: string, end: string) => {
     if (!start || !end) return 0
     const [h1, m1] = start.split(':').map(Number)
     const [h2, m2] = end.split(':').map(Number)
     let diff = (h2 + m2 / 60) - (h1 + m1 / 60)
     if (diff < 0) diff += 24
-    return diff.toFixed(1)
+    return diff
   }
 
-  // กรองข้อมูลตามเดือนที่เลือก
+  // คำนวณชั่วโมงที่ "ทำจริง" ตามกฎ: ค่าน้อยกว่า + ปัดเศษลงทีละ 0.5 ชม.
+  const calculateActualOT = (otRequest: any) => {
+    if (otRequest.status !== 'approved') return 0
+
+    const attRecord = attendance.find(a => a.action_date === otRequest.request_date)
+    const reqHours = calculateRequestedHours(otRequest.start_time, otRequest.end_time)
+    
+    // ถ้ายังไม่ได้สแกนออก ถือว่ายังไม่ได้ทำ OT
+    if (!attRecord || !attRecord.check_out_time) return 0
+
+    const checkOutDate = new Date(attRecord.check_out_time)
+    const reqStartDate = new Date(`${otRequest.request_date}T${otRequest.start_time}`)
+    
+    let actualHours = (checkOutDate.getTime() - reqStartDate.getTime()) / (1000 * 60 * 60)
+    
+    if (actualHours <= 0) return 0
+
+    // กฎข้อ 1: ยึดค่าที่น้อยกว่าระหว่างที่ขอกับที่ทำจริง
+    const validHours = Math.min(reqHours, actualHours)
+
+    // กฎข้อ 2: ปัดเศษทิ้ง (Round down) ทีละ 0.5 ชั่วโมง
+    const finalHours = Math.floor(validHours * 2) / 2
+
+    return finalHours
+  }
+
   const filteredHistory = filterMonth 
     ? history.filter(item => item.request_date.startsWith(filterMonth))
     : history
+
+  // สรุปยอด OT ของเดือนที่เลือก
+  const otSummary = filteredHistory.reduce((acc, curr) => {
+    const reqHrs = calculateRequestedHours(curr.start_time, curr.end_time)
+    
+    if (curr.status === 'approved') {
+      acc.approvedReq += reqHrs
+      acc.actualDone += calculateActualOT(curr)
+    } else if (curr.status === 'pending') {
+      acc.pending += reqHrs
+    } else if (curr.status === 'rejected') {
+      acc.rejected += reqHrs
+    }
+    return acc
+  }, { approvedReq: 0, actualDone: 0, pending: 0, rejected: 0 })
 
   if (isLoading) return <div className="p-6 text-center text-slate-500 font-medium">กำลังโหลด...</div>
 
   return (
     <div className="min-h-screen bg-slate-50 p-4 font-sans pb-8">
-      <div className="max-w-md mx-auto">
+      <div className="max-w-md mx-auto space-y-4">
         
         {/* Header */}
-        <div className="flex items-center justify-between mb-4 bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+        <div className="flex items-center justify-between bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
           <h1 className="text-lg font-bold text-slate-800 flex items-center gap-2">
             ⏳ ประวัติการขอ OT
           </h1>
@@ -83,7 +127,7 @@ export default function OTHistoryPage() {
         </div>
 
         {/* ตัวกรองเดือน */}
-        <div className="mb-4 bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+        <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
           <label className="block text-xs font-bold text-slate-500 mb-1.5">📅 ค้นหาตามเดือน-ปี</label>
           <input 
             type="month" 
@@ -93,6 +137,31 @@ export default function OTHistoryPage() {
           />
         </div>
 
+        {/* กล่องสรุป OT */}
+        <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 space-y-3">
+          <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2 mb-1">
+            📊 สรุปยอด OT (เดือนที่เลือก)
+          </h2>
+          
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-indigo-50 p-3 rounded-xl border border-indigo-100">
+              <div className="text-[10px] font-bold text-indigo-500 mb-1">✅ อนุมัติแล้ว (ตามที่ยื่นขอ)</div>
+              <div className="text-xl font-extrabold text-indigo-700">{otSummary.approvedReq.toFixed(1)} <span className="text-xs font-bold">ชม.</span></div>
+            </div>
+            <div className="bg-emerald-50 p-3 rounded-xl border border-emerald-100">
+              <div className="text-[10px] font-bold text-emerald-600 mb-1">🎯 คิดเงินจริง (สแกนออก)</div>
+              <div className="text-xl font-extrabold text-emerald-700">{otSummary.actualDone.toFixed(1)} <span className="text-xs font-bold">ชม.</span></div>
+            </div>
+          </div>
+          
+          {(otSummary.pending > 0 || otSummary.rejected > 0) && (
+            <div className="flex gap-2 mt-2">
+              {otSummary.pending > 0 && <span className="px-2 py-1 rounded-md text-[10px] font-bold bg-amber-100 text-amber-700">⏳ รอตรวจ: {otSummary.pending.toFixed(1)} ชม.</span>}
+              {otSummary.rejected > 0 && <span className="px-2 py-1 rounded-md text-[10px] font-bold bg-rose-100 text-rose-700">❌ ไม่อนุมัติ: {otSummary.rejected.toFixed(1)} ชม.</span>}
+            </div>
+          )}
+        </div>
+
         {/* List */}
         <div className="space-y-3">
           {filteredHistory.length === 0 ? (
@@ -100,44 +169,52 @@ export default function OTHistoryPage() {
               ไม่พบประวัติการขอ OT ในเดือนนี้
             </div>
           ) : (
-            filteredHistory.map((item) => (
-              <div key={item.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col gap-3">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <div className="text-xs font-bold text-slate-400 mb-0.5">วันที่ทำ OT</div>
-                    <div className="text-sm font-bold text-slate-800">
-                      {new Date(item.request_date).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' })}
+            filteredHistory.map((item) => {
+              const reqHrs = calculateRequestedHours(item.start_time, item.end_time)
+              const actualHrs = calculateActualOT(item)
+              
+              return (
+                <div key={item.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col gap-3 relative overflow-hidden">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <div className="text-xs font-bold text-slate-400 mb-0.5">วันที่ทำ OT</div>
+                      <div className="text-sm font-bold text-slate-800">
+                        {new Date(item.request_date).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' })}
+                      </div>
+                    </div>
+                    <div>
+                      {item.status === 'pending' && <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-amber-100 text-amber-700">⏳ รออนุมัติ</span>}
+                      {item.status === 'approved' && <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-emerald-100 text-emerald-700">✅ อนุมัติ</span>}
+                      {item.status === 'rejected' && <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-rose-100 text-rose-700">❌ ไม่อนุมัติ</span>}
                     </div>
                   </div>
-                  <div>
-                    {item.status === 'pending' && <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-amber-100 text-amber-700">⏳ รออนุมัติ</span>}
-                    {item.status === 'approved' && <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-emerald-100 text-emerald-700">✅ อนุมัติ</span>}
-                    {item.status === 'rejected' && <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-rose-100 text-rose-700">❌ ไม่อนุมัติ</span>}
-                  </div>
-                </div>
-                
-                <div className="flex gap-6 border-t border-slate-50 pt-3">
-                  <div>
-                    <div className="text-[10px] font-bold text-slate-400 mb-0.5">เวลา (เริ่มต้น-สิ้นสุด)</div>
-                    <div className="text-sm font-bold text-indigo-600">
-                      {item.start_time.substring(0, 5)} - {item.end_time.substring(0, 5)} น.
+                  
+                  <div className="grid grid-cols-2 gap-4 border-t border-slate-50 pt-3">
+                    <div>
+                      <div className="text-[10px] font-bold text-slate-400 mb-0.5">เวลาที่ขอ (รวมชั่วโมง)</div>
+                      <div className="text-sm font-bold text-indigo-600">
+                        {item.start_time.substring(0, 5)} - {item.end_time.substring(0, 5)} น.
+                        <span className="block text-xs mt-0.5">({reqHrs.toFixed(1)} ชม.)</span>
+                      </div>
                     </div>
+                    {item.status === 'approved' && (
+                      <div className="bg-emerald-50/50 p-2 rounded-lg border border-emerald-100">
+                        <div className="text-[10px] font-bold text-emerald-600 mb-0.5">ชั่วโมง OT คิดเงินจริง</div>
+                        <div className="text-sm font-extrabold text-emerald-700">
+                          {actualHrs > 0 ? `${actualHrs.toFixed(1)} ชม.` : 'รอดึงเวลาสแกนออก'}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <div>
-                    <div className="text-[10px] font-bold text-slate-400 mb-0.5">รวมชั่วโมง</div>
-                    <div className="text-sm font-bold text-slate-700">
-                      {calculateHours(item.start_time, item.end_time)} ชม.
-                    </div>
-                  </div>
-                </div>
 
-                {item.reason && (
-                  <div className="text-xs text-slate-600 bg-slate-50 p-2.5 rounded-lg border border-slate-100">
-                    <span className="font-bold text-slate-500">เหตุผล: </span>{item.reason}
-                  </div>
-                )}
-              </div>
-            ))
+                  {item.reason && (
+                    <div className="text-xs text-slate-600 bg-slate-50 p-2.5 rounded-lg border border-slate-100 mt-1">
+                      <span className="font-bold text-slate-500">เหตุผล: </span>{item.reason}
+                    </div>
+                  )}
+                </div>
+              )
+            })
           )}
         </div>
 
