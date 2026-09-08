@@ -95,7 +95,7 @@ export default function LiffAttendancePage() {
         .from('attendance')
         .select('*, work_shifts(*)')
         .eq('user_id', userId)
-        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
         .limit(1)
         .maybeSingle()
 
