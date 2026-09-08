@@ -55,30 +55,35 @@ export default function NavigationLayout({ children }: { children: React.ReactNo
           HR SaaS
         </div>
         <nav className="flex-1 px-4 py-6 space-y-2">
-          <Link 
-            href="/" 
+          <Link
+            href="/"
             className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium ${pathname === '/' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
           >
             <span className="text-xl">👥</span> รายชื่อพนักงาน
           </Link>
-          <Link 
-            href="/attendance" 
+          <Link
+            href="/attendance"
             className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium ${pathname === '/attendance' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
           >
             <span className="text-xl">📅</span> ประวัติลงเวลา
           </Link>
-          {/* เพิ่มเมนูนี้ลงไปครับ */}
-        <Link 
-          href="/settings" 
-          className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium ${pathname === '/settings' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
-        >
-          <span className="text-xl">⚙️</span> ตั้งค่าองค์กร
-        </Link>
+          <Link
+            href="/leaves"
+            className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium ${pathname === '/leaves' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+          >
+            <span className="text-xl">📝</span> จัดการการลา
+          </Link>
+          <Link
+            href="/settings"
+            className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium ${pathname === '/settings' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+          >
+            <span className="text-xl">⚙️</span> ตั้งค่าองค์กร
+          </Link>
         </nav>
-        
+
         {/* ส่วนปุ่มออกจากระบบด้านล่างสุด */}
         <div className="p-4 border-t border-slate-800">
-          <button 
+          <button
             onClick={handleLogout}
             className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-slate-800 hover:bg-rose-600 text-slate-300 hover:text-white rounded-lg transition-colors font-medium text-sm"
           >
@@ -86,7 +91,7 @@ export default function NavigationLayout({ children }: { children: React.ReactNo
           </button>
         </div>
       </div>
-      
+
       <div className="flex-1 p-8 overflow-auto">
         {children}
       </div>
