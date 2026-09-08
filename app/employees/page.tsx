@@ -170,6 +170,7 @@ export default function EmployeesPage() {
 
     const payload = {
       ...formData,
+      company_id: 1,
       base_salary: Number(formData.base_salary),
       daily_rate: Number(formData.daily_rate),
       benefits: employeeBenefits,
