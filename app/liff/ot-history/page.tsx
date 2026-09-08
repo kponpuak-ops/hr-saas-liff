@@ -8,6 +8,12 @@ import Link from 'next/link'
 export default function OTHistoryPage() {
   const [history, setHistory] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  
+  // State สำหรับตัวกรองเดือน (ค่าเริ่มต้นคือเดือนปัจจุบัน YYYY-MM)
+  const [filterMonth, setFilterMonth] = useState(() => {
+    const today = new Date()
+    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
+  })
 
   useEffect(() => {
     const initLiff = async () => {
@@ -40,7 +46,7 @@ export default function OTHistoryPage() {
       .from('ot_requests')
       .select('*')
       .eq('user_id', userId)
-      .order('created_at', { ascending: false })
+      .order('request_date', { ascending: false }) // เรียงตามวันที่ทำ OT จากใหม่ไปเก่า
 
     if (data) setHistory(data)
     setIsLoading(false)
@@ -55,6 +61,11 @@ export default function OTHistoryPage() {
     return diff.toFixed(1)
   }
 
+  // กรองข้อมูลตามเดือนที่เลือก
+  const filteredHistory = filterMonth 
+    ? history.filter(item => item.request_date.startsWith(filterMonth))
+    : history
+
   if (isLoading) return <div className="p-6 text-center text-slate-500 font-medium">กำลังโหลด...</div>
 
   return (
@@ -62,7 +73,7 @@ export default function OTHistoryPage() {
       <div className="max-w-md mx-auto">
         
         {/* Header */}
-        <div className="flex items-center justify-between mb-6 bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+        <div className="flex items-center justify-between mb-4 bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
           <h1 className="text-lg font-bold text-slate-800 flex items-center gap-2">
             ⏳ ประวัติการขอ OT
           </h1>
@@ -71,14 +82,25 @@ export default function OTHistoryPage() {
           </Link>
         </div>
 
+        {/* ตัวกรองเดือน */}
+        <div className="mb-4 bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+          <label className="block text-xs font-bold text-slate-500 mb-1.5">📅 ค้นหาตามเดือน-ปี</label>
+          <input 
+            type="month" 
+            value={filterMonth}
+            onChange={(e) => setFilterMonth(e.target.value)}
+            className="w-full p-2.5 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50"
+          />
+        </div>
+
         {/* List */}
         <div className="space-y-3">
-          {history.length === 0 ? (
+          {filteredHistory.length === 0 ? (
             <div className="text-center p-8 bg-white rounded-2xl border border-slate-100 text-slate-500 text-sm font-medium">
-              ยังไม่มีประวัติการขอ OT
+              ไม่พบประวัติการขอ OT ในเดือนนี้
             </div>
           ) : (
-            history.map((item) => (
+            filteredHistory.map((item) => (
               <div key={item.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col gap-3">
                 <div className="flex justify-between items-start">
                   <div>

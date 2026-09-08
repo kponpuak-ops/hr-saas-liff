@@ -10,6 +10,12 @@ export default function LeaveHistoryPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [errorMsg, setErrorMsg] = useState('')
 
+  // State สำหรับตัวกรองเดือน (ค่าเริ่มต้นคือเดือนปัจจุบัน YYYY-MM)
+  const [filterMonth, setFilterMonth] = useState(() => {
+    const today = new Date()
+    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
+  })
+
   useEffect(() => {
     const initData = async () => {
       try {
@@ -37,7 +43,7 @@ export default function LeaveHistoryPage() {
           .from('leaves')
           .select('*')
           .eq('user_id', userData.id)
-          .order('created_at', { ascending: false })
+          .order('start_date', { ascending: false })
 
         if (error) throw error
         setLeaves(leaveData || [])
@@ -52,11 +58,16 @@ export default function LeaveHistoryPage() {
     initData()
   }, [])
 
-  // ฟังก์ชันสรุปข้อมูลการลาเฉพาะที่เคยยื่น
+  // กรองข้อมูลตามเดือนที่เลือก (เช็กจาก start_date หรือ end_date)
+  const filteredLeaves = filterMonth 
+    ? leaves.filter(leave => leave.start_date.startsWith(filterMonth) || leave.end_date.startsWith(filterMonth))
+    : leaves
+
+  // ฟังก์ชันสรุปข้อมูลการลาเฉพาะที่เคยยื่นในเดือนที่เลือก
   const calculateLeaveSummary = () => {
     const summary: Record<string, { approved: number; pending: number; rejected: number }> = {}
 
-    leaves.forEach(leave => {
+    filteredLeaves.forEach(leave => {
       const start = new Date(leave.start_date)
       const end = new Date(leave.end_date)
       const diffDays = Math.ceil(Math.abs(end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1 
@@ -109,10 +120,23 @@ export default function LeaveHistoryPage() {
           </Link>
         </div>
 
-        {/* สรุปข้อมูลการลา (แสดงเฉพาะที่เคยยื่น) */}
+        {/* ตัวกรองเดือน */}
+        {!errorMsg && (
+            <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+                <label className="block text-xs font-bold text-slate-500 mb-1.5">📅 ค้นหาตามเดือน-ปี</label>
+                <input 
+                    type="month" 
+                    value={filterMonth}
+                    onChange={(e) => setFilterMonth(e.target.value)}
+                    className="w-full p-2.5 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50"
+                />
+            </div>
+        )}
+
+        {/* สรุปข้อมูลการลา (แสดงเฉพาะที่เคยยื่นในเดือนที่เลือก) */}
         {!errorMsg && summaryKeys.length > 0 && (
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
-            <h2 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">📊 สรุปการยื่นใบลาของคุณ</h2>
+            <h2 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">📊 สรุปการยื่นใบลาของคุณ (เดือนที่เลือก)</h2>
             <div className="space-y-2">
               {summaryKeys.map((type) => {
                 const stats = leaveSummary[type]
@@ -135,14 +159,14 @@ export default function LeaveHistoryPage() {
           <div className="bg-rose-50 text-rose-600 p-4 rounded-2xl text-center text-sm font-bold border border-rose-100">
             {errorMsg}
           </div>
-        ) : leaves.length === 0 ? (
+        ) : filteredLeaves.length === 0 ? (
           <div className="bg-white p-8 rounded-2xl text-center border border-slate-100 shadow-sm">
             <span className="text-4xl block mb-2">📭</span>
-            <p className="text-slate-500 font-medium text-sm">ยังไม่มีประวัติการยื่นใบลา</p>
+            <p className="text-slate-500 font-medium text-sm">ไม่พบประวัติการยื่นใบลาในเดือนนี้</p>
           </div>
         ) : (
           <div className="space-y-3">
-            {leaves.map((leave) => (
+            {filteredLeaves.map((leave) => (
               <div key={leave.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 space-y-2 relative overflow-hidden">
                 <div className="flex justify-between items-start">
                   <span className="font-bold text-slate-800">{leave.leave_type}</span>
@@ -170,5 +194,4 @@ export default function LeaveHistoryPage() {
       </div>
     </div>
   )
-  
 }
