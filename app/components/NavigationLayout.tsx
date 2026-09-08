@@ -12,8 +12,8 @@ export default function NavigationLayout({ children }: { children: React.ReactNo
 
   useEffect(() => {
     const checkAuth = async () => {
-      // 1. ถ้าเป็นหน้ามือถือพนักงาน (LIFF) ให้ผ่านได้เลยไม่ต้องเช็คล็อคอิน
-      if (pathname.startsWith('/liff')) {
+      // 1. ถ้าเป็นหน้ามือถือพนักงาน (LIFF หรือ Bind) ให้ผ่านได้เลยไม่ต้องเช็คล็อคอิน
+      if (pathname.startsWith('/liff') || pathname.startsWith('/bind')) {
         setIsChecking(false)
         return
       }
@@ -44,7 +44,8 @@ export default function NavigationLayout({ children }: { children: React.ReactNo
     return <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-500 font-medium">กำลังตรวจสอบสิทธิ์...</div>
   }
 
-  if (pathname.startsWith('/liff') || pathname === '/login') {
+  // ซ่อน Sidebar สำหรับหน้าของพนักงาน (LIFF / Bind) และหน้า Login
+  if (pathname.startsWith('/liff') || pathname.startsWith('/bind') || pathname === '/login') {
     return <>{children}</>
   }
 
