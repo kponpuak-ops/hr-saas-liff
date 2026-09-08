@@ -44,6 +44,13 @@ export default function OTAdminPage() {
     if (error) {
       alert('เกิดข้อผิดพลาดในการอัปเดตสถานะ')
     } else {
+      // คำสั่งเรียก API ให้ส่งแจ้งเตือน LINE
+      fetch('/api/notify-ot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ otId, status }),
+      }).catch((err) => console.error('Notification error:', err))
+
       if (selectedOT?.id === otId) {
         setSelectedOT({ ...selectedOT, status })
       }
