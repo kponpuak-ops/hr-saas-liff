@@ -141,15 +141,24 @@ export default function LiffAttendancePage() {
 
   // กดปุ่มลงเวลาออกงาน
   const handleCheckOut = async () => {
-    if (!activeRecord) return
+    if (!user) return
     setSubmitting(true)
     try {
       const now = new Date()
 
-      const { error } = await supabase
+      // 1. ถ้ามี id ใน activeRecord ให้ใช้ id
+      // 2. ถ้าไม่มี id ให้ใช้ user_id + check_out_time is null เป็นตัวค้นหาแทน
+      let query = supabase
         .from('attendance')
         .update({ check_out_time: now.toISOString() })
-        .eq('id', activeRecord.id)
+
+      if (activeRecord?.id) {
+        query = query.eq('id', activeRecord.id)
+      } else {
+        query = query.eq('user_id', user.id).is('check_out_time', null)
+      }
+
+      const { error } = await query
 
       if (error) throw error
 
