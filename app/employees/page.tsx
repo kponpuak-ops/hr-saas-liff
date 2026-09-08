@@ -15,6 +15,9 @@ export default function EmployeesPage() {
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false)
   const [uploadingPhoto, setUploadingPhoto] = useState<boolean>(false)
 
+  // State สำหรับโหมดแก้ไข (ถ้า null แปลว่ากำลัง "เพิ่มพนักงานใหม่", ถ้ามี id แปลว่ากำลัง "แก้ไข")
+  const [editingEmployeeId, setEditingEmployeeId] = useState<string | null>(null)
+
   // State สำหรับ Pop-up ขยายดูรูปภาพเต็ม
   const [previewImage, setPreviewImage] = useState<string | null>(null)
 
@@ -23,8 +26,8 @@ export default function EmployeesPage() {
   const [positions, setPositions] = useState<any[]>([])
   const [benefitOptions, setBenefitOptions] = useState<any[]>([])
 
-  // Form State
-  const [formData, setFormData] = useState({
+  // Form State Initial Value
+  const initialFormState = {
     first_name: '',
     last_name: '',
     role: 'Staff',
@@ -35,8 +38,9 @@ export default function EmployeesPage() {
     base_salary: 0,
     department: '',
     position: '',
-  })
+  }
 
+  const [formData, setFormData] = useState(initialFormState)
   const [employeeBenefits, setEmployeeBenefits] = useState<BenefitItem[]>([])
 
   useEffect(() => {
@@ -116,36 +120,76 @@ export default function EmployeesPage() {
     })
   }
 
-  const handleAddEmployee = async (e: React.FormEvent) => {
+  // เปิดฟอร์มแก้ไขพร้อมโหลดข้อมูลเดิมของพนักงานคนนั้น
+  const handleEditClick = (emp: any) => {
+    setEditingEmployeeId(emp.id)
+    setFormData({
+      first_name: emp.first_name || '',
+      last_name: emp.last_name || '',
+      role: emp.role || 'Staff',
+      phone: emp.phone || '',
+      emergency_contact: emp.emergency_contact || '',
+      address: emp.address || '',
+      avatar_url: emp.avatar_url || '',
+      base_salary: emp.base_salary || 0,
+      department: emp.department || (departments[0]?.name || ''),
+      position: emp.position || (positions[0]?.title || ''),
+    })
+    setEmployeeBenefits(emp.benefits || [])
+    setShowAddForm(true)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  // ยกเลิกฟอร์มและรีเซ็ตค่า
+  const handleCancelForm = () => {
+    setShowAddForm(false)
+    setEditingEmployeeId(null)
+    setFormData({
+      ...initialFormState,
+      department: departments[0]?.name || '',
+      position: positions[0]?.title || '',
+    })
+    setEmployeeBenefits([])
+  }
+
+  // บันทึกข้อมูล (รองรับทั้งเพิ่มใหม่ และ แก้ไขของเดิม)
+  const handleSaveEmployee = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsSubmitting(true)
 
-    const { error } = await supabase.from('users').insert([
-      {
-        ...formData,
-        benefits: employeeBenefits,
-      },
-    ])
+    if (editingEmployeeId) {
+      // 1. กรณีแก้ไขพนักงานเดิม
+      const { error } = await supabase
+        .from('users')
+        .update({
+          ...formData,
+          benefits: employeeBenefits,
+        })
+        .eq('id', editingEmployeeId)
 
-    if (error) {
-      alert('เกิดข้อผิดพลาด: ' + error.message)
+      if (error) {
+        alert('เกิดข้อผิดพลาดในการอัปเดต: ' + error.message)
+      } else {
+        alert('อัปเดตข้อมูลพนักงานเรียบร้อยแล้ว')
+        handleCancelForm()
+        fetchEmployees()
+      }
     } else {
-      alert('บันทึกข้อมูลพนักงานเรียบร้อยแล้ว')
-      setShowAddForm(false)
-      setFormData({
-        first_name: '',
-        last_name: '',
-        role: 'Staff',
-        phone: '',
-        emergency_contact: '',
-        address: '',
-        avatar_url: '',
-        base_salary: 0,
-        department: departments[0]?.name || '',
-        position: positions[0]?.title || '',
-      })
-      setEmployeeBenefits([])
-      fetchEmployees()
+      // 2. กรณีเพิ่มพนักงานใหม่
+      const { error } = await supabase.from('users').insert([
+        {
+          ...formData,
+          benefits: employeeBenefits,
+        },
+      ])
+
+      if (error) {
+        alert('เกิดข้อผิดพลาด: ' + error.message)
+      } else {
+        alert('บันทึกข้อมูลพนักงานเรียบร้อยแล้ว')
+        handleCancelForm()
+        fetchEmployees()
+      }
     }
     setIsSubmitting(false)
   }
@@ -175,7 +219,10 @@ export default function EmployeesPage() {
           <p className="text-slate-500 text-sm">ข้อมูลส่วนตัว ฐานเงินเดือน สวัสดิการ และตำแหน่งงาน</p>
         </div>
         <button
-          onClick={() => setShowAddForm(!showAddForm)}
+          onClick={() => {
+            if (showAddForm) handleCancelForm()
+            else setShowAddForm(true)
+          }}
           className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all shadow-sm flex items-center gap-2 ${
             showAddForm ? 'bg-slate-200 text-slate-700 hover:bg-slate-300' : 'bg-indigo-600 text-white hover:bg-indigo-700'
           }`}
@@ -184,15 +231,20 @@ export default function EmployeesPage() {
         </button>
       </div>
 
-      {/* ฟอร์มบันทึกพนักงานใหม่ */}
+      {/* ฟอร์มบันทึก / แก้ไขพนักงาน */}
       {showAddForm && (
-        <form onSubmit={handleAddEmployee} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-md mb-8 space-y-6">
+        <form onSubmit={handleSaveEmployee} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-md mb-8 space-y-6 animate-fade-in">
           
+          <div className="flex justify-between items-center border-b pb-3">
+            <h2 className="text-lg font-bold text-indigo-900 flex items-center gap-2">
+              {editingEmployeeId ? '✏️ แก้ไขข้อมูลพนักงาน' : '➕ เพิ่มพนักงานใหม่'}
+            </h2>
+            <span className="text-xs text-slate-400">ID: {editingEmployeeId || 'ใหม่'}</span>
+          </div>
+
           {/* หมวดที่ 1: ข้อมูลส่วนตัวและรูปถ่าย */}
           <div>
-            <h2 className="text-base font-bold text-indigo-900 border-b pb-2 mb-4 flex items-center gap-2">
-              👤 ข้อมูลส่วนตัวและรูปถ่าย
-            </h2>
+            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">👤 ข้อมูลส่วนตัวและรูปถ่าย</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">ชื่อจริง *</label>
@@ -240,9 +292,7 @@ export default function EmployeesPage() {
 
           {/* หมวดที่ 2: โครงสร้างองค์กร */}
           <div>
-            <h2 className="text-base font-bold text-indigo-900 border-b pb-2 mb-4 flex items-center gap-2">
-              🏢 โครงสร้างองค์กร
-            </h2>
+            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">🏢 โครงสร้างองค์กร</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">แผนก</label>
@@ -285,9 +335,7 @@ export default function EmployeesPage() {
 
           {/* หมวดที่ 3: เงินเดือน & สวัสดิการ */}
           <div>
-            <h2 className="text-base font-bold text-indigo-900 border-b pb-2 mb-4 flex items-center gap-2">
-              💰 ฐานเงินเดือน และสวัสดิการ
-            </h2>
+            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">💰 ฐานเงินเดือน และสวัสดิการ</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">ฐานเงินเดือนประจำ (บาท)</label>
@@ -348,9 +396,7 @@ export default function EmployeesPage() {
 
           {/* หมวดที่ 4: การติดต่อ */}
           <div>
-            <h2 className="text-base font-bold text-indigo-900 border-b pb-2 mb-4 flex items-center gap-2">
-              📞 ช่องทางการติดต่อ
-            </h2>
+            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">📞 ช่องทางการติดต่อ</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">เบอร์โทรศัพท์ติดต่อ</label>
@@ -384,13 +430,20 @@ export default function EmployeesPage() {
             </div>
           </div>
 
-          <div className="flex justify-end pt-4 border-t border-slate-100">
+          <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={handleCancelForm}
+              className="px-6 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-semibold transition-all text-sm"
+            >
+              ยกเลิก
+            </button>
             <button
               type="submit"
               disabled={isSubmitting || uploadingPhoto}
-              className="px-8 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow-md transition-all disabled:opacity-50"
+              className="px-8 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow-md transition-all text-sm disabled:opacity-50"
             >
-              {isSubmitting ? 'กำลังบันทึก...' : '💾 บันทึกข้อมูลพนักงาน'}
+              {isSubmitting ? 'กำลังบันทึก...' : editingEmployeeId ? '💾 บันทึกการแก้ไข' : '💾 บันทึกพนักงานใหม่'}
             </button>
           </div>
         </form>
@@ -416,7 +469,6 @@ export default function EmployeesPage() {
                 <tr key={emp.id} className="hover:bg-slate-50 transition-colors text-sm">
                   <td className="py-4">
                     <div className="flex items-center gap-3">
-                      {/* รูปโปรไฟล์ กดแล้วขยายรูปใหญ่ได้ */}
                       <button
                         type="button"
                         title="คลิกเพื่อดูรูปขนาดใหญ่"
@@ -476,13 +528,22 @@ export default function EmployeesPage() {
                     )}
                   </td>
                   <td className="py-4 text-right">
-                    <button
-                      onClick={() => handleDeleteEmployee(emp.id, `${emp.first_name} ${emp.last_name}`)}
-                      className="px-2.5 py-1 text-rose-600 hover:bg-rose-50 rounded-lg text-xs font-bold transition-colors"
-                      title="ลบพนักงานคนนี้"
-                    >
-                      🗑️ ลบ
-                    </button>
+                    <div className="flex justify-end gap-1">
+                      <button
+                        onClick={() => handleEditClick(emp)}
+                        className="px-2.5 py-1 text-indigo-600 hover:bg-indigo-50 rounded-lg text-xs font-bold transition-colors"
+                        title="แก้ไขข้อมูลพนักงาน"
+                      >
+                        ✏️ แก้ไข
+                      </button>
+                      <button
+                        onClick={() => handleDeleteEmployee(emp.id, `${emp.first_name} ${emp.last_name}`)}
+                        className="px-2.5 py-1 text-rose-600 hover:bg-rose-50 rounded-lg text-xs font-bold transition-colors"
+                        title="ลบพนักงานคนนี้"
+                      >
+                        🗑️ ลบ
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -491,7 +552,7 @@ export default function EmployeesPage() {
         </div>
       </div>
 
-      {/* Pop-up แสดงรูปภาพขนาดใหญ่เมื่อแอดมินคลิกรูปโปรไฟล์ */}
+      {/* Pop-up แสดงรูปภาพขนาดใหญ่ */}
       {previewImage && (
         <div
           className="fixed inset-0 bg-slate-900/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in"
