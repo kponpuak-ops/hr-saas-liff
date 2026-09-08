@@ -19,6 +19,12 @@ export default function EmployeesPage() {
   const [editingEmployeeId, setEditingEmployeeId] = useState<string | null>(null)
   const [previewImage, setPreviewImage] = useState<string | null>(null)
 
+  // State สำหรับ Modal สรุปโปรไฟล์ & การลา
+  const [showProfileModal, setShowProfileModal] = useState<boolean>(false)
+  const [selectedProfile, setSelectedProfile] = useState<any>(null)
+  const [leaveSummary, setLeaveSummary] = useState<any[]>([])
+  const [isLoadingProfile, setIsLoadingProfile] = useState<boolean>(false)
+
   // Filter & Search State
   const [search, setSearch] = useState('')
   const [filterType, setFilterType] = useState('all')
@@ -38,7 +44,7 @@ export default function EmployeesPage() {
     emergency_contact: '',
     address: '',
     avatar_url: '',
-    employment_type: 'full_time', // 'full_time' | 'probation' | 'daily' | 'contract'
+    employment_type: 'full_time',
     base_salary: 15000,
     daily_rate: 500,
     department: '',
@@ -75,6 +81,52 @@ export default function EmployeesPage() {
 
     if (deptData && deptData.length > 0) setFormData(prev => ({ ...prev, department: deptData[0].name }))
     if (posData && posData.length > 0) setFormData(prev => ({ ...prev, position: posData[0].title }))
+  }
+
+  // --- จัดการดูโปรไฟล์ & สรุปการลา ---
+  const handleViewProfile = async (emp: any) => {
+    setSelectedProfile(emp)
+    setShowProfileModal(true)
+    setIsLoadingProfile(true)
+
+    try {
+      const [leavesRes, typesRes] = await Promise.all([
+        supabase.from('leaves').select('*').eq('user_id', emp.id),
+        supabase.from('leave_types').select('*')
+      ])
+
+      const leaves = leavesRes.data || []
+      const types = typesRes.data || []
+
+      const summaryMap: Record<string, any> = {}
+
+      leaves.forEach((l: any) => {
+        if (!summaryMap[l.leave_type]) {
+          const typeInfo = types.find((t: any) => t.name === l.leave_type)
+          summaryMap[l.leave_type] = {
+            name: l.leave_type,
+            max: typeInfo?.max_paid_days || 0,
+            approved: 0,
+            pending: 0,
+            rejected: 0
+          }
+        }
+
+        const start = new Date(l.start_date)
+        const end = new Date(l.end_date)
+        const days = Math.ceil(Math.abs(end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1
+
+        if (l.status === 'approved') summaryMap[l.leave_type].approved += days
+        if (l.status === 'pending') summaryMap[l.leave_type].pending += days
+        if (l.status === 'rejected') summaryMap[l.leave_type].rejected += days
+      })
+
+      setLeaveSummary(Object.values(summaryMap))
+    } catch (error) {
+      console.error('Error fetching leave summary:', error)
+    } finally {
+      setIsLoadingProfile(false)
+    }
   }
 
   // อัปโหลดไฟล์รูปภาพพนักงาน
@@ -554,6 +606,7 @@ export default function EmployeesPage() {
           </div>
         </form>
       )}
+
       {/* ตารางแสดงพนักงาน */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto p-6">
@@ -660,17 +713,24 @@ export default function EmployeesPage() {
                       )}
                     </td>
                     <td className="py-4 text-right">
-                      <div className="flex justify-end gap-1">
+                      <div className="flex justify-end gap-1.5">
+                        <button
+                          onClick={() => handleViewProfile(emp)}
+                          className="px-2.5 py-1.5 bg-slate-100 text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 border border-slate-200 rounded-lg text-xs font-bold transition-colors"
+                          title="ดูโปรไฟล์และสิทธิ์การลา"
+                        >
+                          🔍 โปรไฟล์ & วันลา
+                        </button>
                         <button
                           onClick={() => handleEditClick(emp)}
-                          className="px-2.5 py-1 text-indigo-600 hover:bg-indigo-50 rounded-lg text-xs font-bold transition-colors"
+                          className="px-2.5 py-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg text-xs font-bold transition-colors"
                           title="แก้ไขข้อมูลพนักงาน"
                         >
                           ✏️ แก้ไข
                         </button>
                         <button
                           onClick={() => handleDeleteEmployee(emp.id, `${emp.first_name} ${emp.last_name}`)}
-                          className="px-2.5 py-1 text-rose-600 hover:bg-rose-50 rounded-lg text-xs font-bold transition-colors"
+                          className="px-2.5 py-1.5 text-rose-600 hover:bg-rose-50 rounded-lg text-xs font-bold transition-colors"
                           title="ลบพนักงานคนนี้"
                         >
                           🗑️ ลบ
@@ -684,6 +744,96 @@ export default function EmployeesPage() {
           </table>
         </div>
       </div>
+
+      {/* Modal ดูโปรไฟล์ & สรุปสิทธิ์การลา */}
+      {showProfileModal && selectedProfile && (
+        <div
+          className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in"
+          onClick={() => setShowProfileModal(false)}
+        >
+          <div className="relative max-w-2xl w-full bg-white rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
+            <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <h2 className="text-lg font-bold text-slate-800">โปรไฟล์ & สิทธิ์การลา</h2>
+              <button
+                onClick={() => setShowProfileModal(false)}
+                className="text-slate-400 hover:text-slate-700 font-bold"
+              >
+                ✕ ปิด
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto space-y-6">
+              {/* ข้อมูลพนักงานเบื้องต้น */}
+              <div className="flex items-center gap-4 border border-slate-200 p-4 rounded-xl shadow-sm">
+                <div className="w-16 h-16 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-2xl overflow-hidden border border-slate-200 shrink-0">
+                  {selectedProfile.avatar_url ? (
+                    <img src={selectedProfile.avatar_url} alt="Profile" className="w-full h-full object-cover" />
+                  ) : (
+                    selectedProfile.first_name?.[0]
+                  )}
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-slate-800">{selectedProfile.first_name} {selectedProfile.last_name}</h3>
+                  <div className="text-sm font-medium text-slate-500 mt-0.5">
+                    {selectedProfile.position || '-'} • {selectedProfile.department || '-'}
+                  </div>
+                  <div className="text-xs text-slate-400 mt-1 flex gap-3">
+                    <span>ID: {selectedProfile.employee_id || '-'}</span>
+                    <span>📞 {selectedProfile.phone || '-'}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* สรุปสิทธิ์การลา */}
+              <div>
+                <h3 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">📊 ประวัติการลาประจำปี (เฉพาะที่เคยใช้งาน)</h3>
+                
+                {isLoadingProfile ? (
+                  <div className="py-6 text-center text-sm font-medium text-slate-500 bg-slate-50 rounded-xl border border-slate-100">
+                    กำลังคำนวณข้อมูล...
+                  </div>
+                ) : leaveSummary.length === 0 ? (
+                  <div className="py-8 text-center text-sm font-medium text-slate-500 bg-slate-50 rounded-xl border border-slate-100">
+                    ยังไม่มีประวัติการยื่นใบลา
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {leaveSummary.map((summary, idx) => {
+                      const isExceeding = summary.max !== 999 && summary.approved > summary.max;
+                      return (
+                        <div key={idx} className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm">
+                          <div className="flex justify-between items-center mb-2">
+                            <span className="font-bold text-slate-700">{summary.name}</span>
+                            <span className="text-xs font-bold text-slate-500">
+                              สิทธิ์รายปี: {summary.max === 999 ? 'ตามจริง (ไม่จำกัด)' : `${summary.max} วัน`}
+                            </span>
+                          </div>
+                          
+                          <div className="flex flex-wrap gap-2 text-xs">
+                            <span className={`px-2 py-1 rounded-md font-bold ${isExceeding ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                              ✅ อนุมัติแล้ว: {summary.approved} วัน {isExceeding ? '(เกินสิทธิ์)' : ''}
+                            </span>
+                            {summary.pending > 0 && (
+                              <span className="px-2 py-1 rounded-md font-bold bg-amber-100 text-amber-700">
+                                ⏳ รอตรวจสอบ: {summary.pending} วัน
+                              </span>
+                            )}
+                            {summary.rejected > 0 && (
+                              <span className="px-2 py-1 rounded-md font-bold bg-rose-100 text-rose-700">
+                                ❌ ไม่อนุมัติ: {summary.rejected} วัน
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Pop-up แสดงรูปภาพขนาดใหญ่ */}
       {previewImage && (
