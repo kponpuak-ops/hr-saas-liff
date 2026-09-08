@@ -5,34 +5,31 @@ import { supabase } from '../../lib/supabase'
 
 export default function LeavesAdminPage() {
   const [leaves, setLeaves] = useState<any[]>([])
+  const [leaveTypes, setLeaveTypes] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   
-  // States สำหรับระบบ Filter
   const [searchTerm, setSearchTerm] = useState('')
-  const [statusFilter, setStatusFilter] = useState('all') // 'all', 'pending', 'approved', 'rejected'
-
-  // State สำหรับ Modal ดูรายละเอียด
+  const [statusFilter, setStatusFilter] = useState('all')
   const [selectedLeave, setSelectedLeave] = useState<any>(null)
 
   useEffect(() => {
-    fetchLeaves()
+    fetchData()
   }, [])
 
-  const fetchLeaves = async () => {
+  const fetchData = async () => {
     setIsLoading(true)
-    const { data, error } = await supabase
-      .from('leaves')
-      .select(`
-        *,
-        users (*)
-      `)
-      .order('created_at', { ascending: false })
+    
+    // ดึงข้อมูลการลาและประเภทการลาพร้อมกัน
+    const [leavesRes, typesRes] = await Promise.all([
+      supabase.from('leaves').select(`*, users (*)`).order('created_at', { ascending: false }),
+      supabase.from('leave_types').select('*')
+    ])
 
-    if (error) {
-      console.error('Error fetching leaves:', error)
-    } else {
-      setLeaves(data || [])
-    }
+    if (leavesRes.error) console.error('Error fetching leaves:', leavesRes.error)
+    else setLeaves(leavesRes.data || [])
+
+    if (typesRes.data) setLeaveTypes(typesRes.data)
+
     setIsLoading(false)
   }
 
@@ -47,39 +44,58 @@ export default function LeavesAdminPage() {
     if (error) {
       alert('เกิดข้อผิดพลาดในการอัปเดตสถานะ')
     } else {
-      // สั่งส่งข้อความแจ้งเตือนหาพนักงานทาง LINE (ถ้ามี API)
       fetch('/api/notify-leave', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ leaveId, status }),
       }).catch((err) => console.error('Notification error:', err))
 
-      // ปิด Modal หากกำลังเปิดอยู่
       if (selectedLeave?.id === leaveId) {
         setSelectedLeave({ ...selectedLeave, status })
       }
       
-      fetchLeaves()
+      fetchData()
     }
   }
 
   const formatDate = (dateStr: string) => {
     if (!dateStr) return '-'
-    return new Date(dateStr).toLocaleDateString('th-TH', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    })
+    return new Date(dateStr).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' })
   }
 
-  // --- Logic กรองข้อมูล ---
   const filteredLeaves = leaves.filter((leave) => {
     const fullName = `${leave.users?.first_name || ''} ${leave.users?.last_name || ''}`.toLowerCase()
     const matchesSearch = fullName.includes(searchTerm.toLowerCase())
     const matchesStatus = statusFilter === 'all' || leave.status === statusFilter
-    
     return matchesSearch && matchesStatus
   })
+
+  // --- Logic คำนวณวันลาและโควต้าใน Modal ---
+  let requestedDays = 0;
+  let quotaInfo = null;
+
+  if (selectedLeave) {
+    const start = new Date(selectedLeave.start_date)
+    const end = new Date(selectedLeave.end_date)
+    requestedDays = Math.ceil(Math.abs(end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1
+
+    const typeInfo = leaveTypes.find(t => t.name === selectedLeave.leave_type)
+    
+    // นับจำนวนวันที่เคยอนุมัติไปแล้วของพนักงานคนนี้ ในประเภทการลานี้
+    const usedDays = leaves
+      .filter(l => l.user_id === selectedLeave.user_id && l.leave_type === selectedLeave.leave_type && l.status === 'approved')
+      .reduce((acc, curr) => {
+        const s = new Date(curr.start_date)
+        const e = new Date(curr.end_date)
+        return acc + Math.ceil(Math.abs(e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24)) + 1
+      }, 0)
+
+    quotaInfo = { used: usedDays, max: typeInfo?.max_paid_days || 0 }
+  }
+
+  const isExceeding = quotaInfo && (selectedLeave?.status === 'pending' 
+    ? (quotaInfo.used + requestedDays > quotaInfo.max) 
+    : (quotaInfo.used > quotaInfo.max));
 
   if (isLoading) {
     return <div className="p-4 text-slate-500 font-medium">กำลังโหลดข้อมูล...</div>
@@ -91,7 +107,6 @@ export default function LeavesAdminPage() {
         <h1 className="text-2xl font-bold text-slate-800">จัดการรายการลา (Leave Requests)</h1>
       </div>
 
-      {/* --- ส่วนระบบ Filter --- */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6 flex flex-wrap gap-4 items-center">
         <div className="flex-1 min-w-[200px]">
           <label className="block text-xs font-bold text-slate-500 mb-1">ค้นหาชื่อพนักงาน</label>
@@ -118,7 +133,6 @@ export default function LeavesAdminPage() {
         </div>
       </div>
 
-      {/* --- ตารางแสดงรายการ --- */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
         {filteredLeaves.length === 0 ? (
           <p className="text-slate-500 text-center py-8">ไม่พบรายการยื่นใบลาที่ตรงกับเงื่อนไข</p>
@@ -168,23 +182,16 @@ export default function LeavesAdminPage() {
         )}
       </div>
 
-      {/* --- Modal ดูรายละเอียดการลา --- */}
       {selectedLeave && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
             
             <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
               <h2 className="text-lg font-bold text-slate-800">รายละเอียดใบลา</h2>
-              <button 
-                onClick={() => setSelectedLeave(null)}
-                className="text-slate-400 hover:text-slate-700 transition font-bold"
-              >
-                ✕ ปิด
-              </button>
+              <button onClick={() => setSelectedLeave(null)} className="text-slate-400 hover:text-slate-700 transition font-bold">✕ ปิด</button>
             </div>
 
             <div className="p-6 space-y-4 overflow-y-auto">
-              {/* ข้อมูลพนักงาน */}
               <div className="flex items-center gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
                 <div className="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center font-bold text-xl">
                   {selectedLeave.users?.first_name?.[0]}
@@ -195,18 +202,41 @@ export default function LeavesAdminPage() {
                 </div>
               </div>
 
-              {/* รายละเอียดการลา */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <span className="text-xs font-bold text-slate-400">ประเภท</span>
-                  <p className="text-sm font-bold text-indigo-600">{selectedLeave.leave_type}</p>
+              {/* ส่วนรายละเอียดการลา & สรุปโควต้า (ใหม่) */}
+              <div className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm space-y-3">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <span className="text-xs font-bold text-slate-400">ประเภท</span>
+                    <p className="text-sm font-bold text-indigo-600">{selectedLeave.leave_type}</p>
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold text-slate-400">วันที่ลา</span>
+                    <p className="text-sm font-bold text-slate-800">
+                      {formatDate(selectedLeave.start_date)} - {formatDate(selectedLeave.end_date)}
+                      <span className="ml-2 px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-md text-xs font-bold">{requestedDays} วัน</span>
+                    </p>
+                  </div>
                 </div>
-                <div className="space-y-1">
-                  <span className="text-xs font-bold text-slate-400">วันที่ลา</span>
-                  <p className="text-sm font-bold text-slate-800">
-                    {formatDate(selectedLeave.start_date)} - {formatDate(selectedLeave.end_date)}
-                  </p>
-                </div>
+
+                {quotaInfo && (
+                  <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-500">สิทธิ์โควต้ารับค่าจ้าง:</span>
+                    <div className="text-sm font-bold">
+                      {quotaInfo.max === 999 ? (
+                        <span className="text-emerald-600">ตามจริง (ไม่จำกัดวัน)</span>
+                      ) : (
+                        <span className={isExceeding ? 'text-rose-600' : 'text-slate-700'}>
+                          อนุมัติไปแล้ว {quotaInfo.used} / {quotaInfo.max} วัน
+                          {isExceeding && (
+                            <span className="ml-2 text-[10px] bg-rose-100 text-rose-700 px-2 py-0.5 rounded-md border border-rose-200">
+                              ⚠️ หักเงิน (เกินสิทธิ์)
+                            </span>
+                          )}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-1">
@@ -216,7 +246,6 @@ export default function LeavesAdminPage() {
                 </div>
               </div>
 
-              {/* หลักฐานแนบ */}
               <div className="space-y-1">
                 <span className="text-xs font-bold text-slate-400">ไฟล์แนบ / หลักฐาน</span>
                 {selectedLeave.attachment_url ? (
@@ -237,7 +266,6 @@ export default function LeavesAdminPage() {
               </div>
             </div>
 
-            {/* ส่วนปุ่มจัดการ (แสดงเฉพาะสถานะรออนุมัติ) */}
             <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
               {selectedLeave.status === 'pending' ? (
                 <>
@@ -264,7 +292,6 @@ export default function LeavesAdminPage() {
                 </div>
               )}
             </div>
-
           </div>
         </div>
       )}
