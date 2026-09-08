@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
+import Link from 'next/link' // เพิ่ม Import Link
 
 export default function SettingsPage() {
     const [activeTab, setActiveTab] = useState<'structure' | 'work_hours' | 'holidays'>('work_hours')
@@ -191,8 +192,19 @@ export default function SettingsPage() {
 
     return (
         <div className="pb-12">
-            <h1 className="text-2xl font-bold text-slate-800 mb-1">ตั้งค่าองค์กร (Organization Settings)</h1>
-            <p className="text-slate-500 text-sm mb-6">กำหนดเวลาทำงาน ระบบกะ ประกันสังคม ปฏิทินวันหยุด และโครงสร้างองค์กร</p>
+            {/* ปรับส่วนหัวให้มีปุ่มจัดการประเภทการลา */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+                <div>
+                    <h1 className="text-2xl font-bold text-slate-800 mb-1">ตั้งค่าองค์กร (Organization Settings)</h1>
+                    <p className="text-slate-500 text-sm">กำหนดเวลาทำงาน ระบบกะ ประกันสังคม ปฏิทินวันหยุด และโครงสร้างองค์กร</p>
+                </div>
+                <Link 
+                    href="/settings/leave-types" 
+                    className="inline-flex items-center gap-2 bg-white border border-slate-200 shadow-sm text-slate-700 px-5 py-2.5 rounded-xl font-bold hover:border-indigo-300 hover:text-indigo-600 transition-all"
+                >
+                    <span className="text-lg">📝</span> จัดการประเภทการลา
+                </Link>
+            </div>
 
             {/* ปุ่มสลับแท็บ */}
             <div className="flex border-b border-slate-200 mb-6 gap-2">
