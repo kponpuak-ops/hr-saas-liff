@@ -1,20 +1,55 @@
 'use client'
 
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { useEffect, useState } from 'react'
+import { supabase } from '../../lib/supabase'
 
 export default function NavigationLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
+  const router = useRouter()
+  const [isChecking, setIsChecking] = useState(true)
 
-  // ถ้า URL ปัจจุบันมีคำว่า /liff ให้แสดงแค่เนื้อหาเพียวๆ ไม่ต้องมีเมนู (สำหรับมือถือพนักงาน)
-  if (pathname.startsWith('/liff')) {
+  useEffect(() => {
+    const checkAuth = async () => {
+      // 1. ถ้าเป็นหน้ามือถือพนักงาน (LIFF) ให้ผ่านได้เลยไม่ต้องเช็คล็อคอิน
+      if (pathname.startsWith('/liff')) {
+        setIsChecking(false)
+        return
+      }
+
+      // 2. ดึงข้อมูลสถานะการล็อคอินปัจจุบัน
+      const { data: { session } } = await supabase.auth.getSession()
+
+      // 3. เช็คเงื่อนไขและเด้งหน้า
+      if (!session && pathname !== '/login') {
+        router.push('/login') // ไม่มีสิทธิ์ ให้ไปหน้า login
+      } else if (session && pathname === '/login') {
+        router.push('/') // ล็อคอินแล้ว ไม่ต้องอยู่หน้า login ให้ไปหน้าแรก
+      }
+
+      setIsChecking(false)
+    }
+
+    checkAuth()
+  }, [pathname, router])
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
+    router.push('/login')
+  }
+
+  // ป้องกันหน้าจอกระพริบระหว่างระบบกำลังตรวจสอบสิทธิ์
+  if (isChecking) {
+    return <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-500 font-medium">กำลังตรวจสอบสิทธิ์...</div>
+  }
+
+  if (pathname.startsWith('/liff') || pathname === '/login') {
     return <>{children}</>
   }
 
-  // ถ้าเป็นหน้าอื่นๆ (ของ HR) ให้แสดง Sidebar ด้านซ้าย
   return (
     <div className="flex min-h-screen bg-slate-50 font-sans">
-      {/* แถบเมนูด้านซ้าย (Sidebar) */}
       <div className="w-64 bg-slate-900 text-white flex flex-col shadow-xl z-10">
         <div className="p-6 text-2xl font-black text-indigo-400 border-b border-slate-800 tracking-wider">
           HR SaaS
@@ -33,12 +68,18 @@ export default function NavigationLayout({ children }: { children: React.ReactNo
             <span className="text-xl">📅</span> ประวัติลงเวลา
           </Link>
         </nav>
-        <div className="p-4 text-xs text-slate-500 text-center border-t border-slate-800">
-          ระบบจัดการทรัพยากรบุคคล v1.0
+        
+        {/* ส่วนปุ่มออกจากระบบด้านล่างสุด */}
+        <div className="p-4 border-t border-slate-800">
+          <button 
+            onClick={handleLogout}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-slate-800 hover:bg-rose-600 text-slate-300 hover:text-white rounded-lg transition-colors font-medium text-sm"
+          >
+            <span>🚪</span> ออกจากระบบ
+          </button>
         </div>
       </div>
       
-      {/* พื้นที่เนื้อหาหลักด้านขวา */}
       <div className="flex-1 p-8 overflow-auto">
         {children}
       </div>
