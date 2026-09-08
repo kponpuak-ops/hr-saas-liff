@@ -48,11 +48,11 @@ export default function SettingsPage() {
 
     // --- 4. Holiday Calendar State ---
     const [holidays, setHolidays] = useState<any[]>([])
+    // เอา ot_rate ออกจากฟอร์มสร้างวันหยุดแล้ว
     const [newHoliday, setNewHoliday] = useState({
         holiday_date: '',
         name: '',
         type: 'traditional',
-        ot_rate: 2.0,
     })
 
     useEffect(() => {
@@ -174,7 +174,7 @@ export default function SettingsPage() {
         const { error } = await supabase.from('company_holidays').insert([newHoliday])
         if (error) alert('เกิดข้อผิดพลาด: ' + error.message)
         else {
-            setNewHoliday({ holiday_date: '', name: '', type: 'traditional', ot_rate: 2.0 })
+            setNewHoliday({ holiday_date: '', name: '', type: 'traditional' })
             fetchHolidays()
         }
     }
@@ -434,7 +434,7 @@ export default function SettingsPage() {
                         )}
                     </div>
 
-                    {/* 💰 กล่องตั้งค่า OT (ใหม่) */}
+                    {/* 💰 กล่องตั้งค่า OT */}
                     <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
                         <h2 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
                             💰 อัตราค่าล่วงเวลา (OT)
@@ -561,7 +561,7 @@ export default function SettingsPage() {
                 </div>
             )}
             
-            {/* TABS 2: ปฏิทินวันหยุดองค์กร */}
+            {/* TABS 2: ปฏิทินวันหยุดองค์กร (อัปเดตเอาเรท OT ออก) */}
             {activeTab === 'holidays' && (
                 <div className="space-y-6 animate-fade-in">
                     <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
@@ -569,7 +569,7 @@ export default function SettingsPage() {
                             📅 เพิ่มวันหยุดในปฏิทินบริษัท
                         </h2>
 
-                        <form onSubmit={handleAddHoliday} className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end mb-6 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                        <form onSubmit={handleAddHoliday} className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end mb-6 bg-slate-50 p-4 rounded-xl border border-slate-200">
                             <div>
                                 <label className="block text-xs font-semibold text-slate-600 mb-1">วันที่หยุด *</label>
                                 <input
@@ -604,18 +604,6 @@ export default function SettingsPage() {
                                 </select>
                             </div>
                             <div>
-                                <label className="block text-xs font-semibold text-slate-600 mb-1">อัตราคูณ OT (เท่า)</label>
-                                <input
-                                    type="number"
-                                    step="0.5"
-                                    min="1"
-                                    required
-                                    className="w-full p-2.5 border border-indigo-300 bg-indigo-50/50 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-indigo-700"
-                                    value={newHoliday.ot_rate}
-                                    onChange={(e) => setNewHoliday({ ...newHoliday, ot_rate: Number(e.target.value) })}
-                                />
-                            </div>
-                            <div>
                                 <button
                                     type="submit"
                                     className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-sm transition-all shadow"
@@ -633,7 +621,6 @@ export default function SettingsPage() {
                                         <th className="pb-3">วันที่</th>
                                         <th className="pb-3">ชื่อวันหยุด</th>
                                         <th className="pb-3">ประเภทวันหยุด</th>
-                                        <th className="pb-3 text-center">อัตราคูณ OT</th>
                                         <th className="pb-3 text-right">จัดการ</th>
                                     </tr>
                                 </thead>
@@ -649,11 +636,6 @@ export default function SettingsPage() {
                                                 {h.type === 'traditional' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-purple-100 text-purple-700">วันหยุดประเพณี</span>}
                                                 {h.type === 'company' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-700">วันหยุดพิเศษบริษัท</span>}
                                             </td>
-                                            <td className="py-3 text-center">
-                                                <span className="px-2.5 py-1 rounded-lg text-xs font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                                                    {h.ot_rate ?? 2.0} เท่า
-                                                </span>
-                                            </td>
                                             <td className="py-3 text-right">
                                                 <button
                                                     onClick={() => handleDeleteHoliday(h.id)}
@@ -666,7 +648,7 @@ export default function SettingsPage() {
                                     ))}
                                     {holidays.length === 0 && (
                                         <tr>
-                                            <td colSpan={5} className="py-6 text-center text-slate-400">ยังไม่มีข้อมูลวันหยุดในปฏิทิน</td>
+                                            <td colSpan={4} className="py-6 text-center text-slate-400">ยังไม่มีข้อมูลวันหยุดในปฏิทิน</td>
                                         </tr>
                                     )}
                                 </tbody>
