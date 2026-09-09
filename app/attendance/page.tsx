@@ -182,15 +182,14 @@ export default function AttendanceAdminPage() {
                               <span className="text-emerald-600 font-bold bg-emerald-50 px-2 py-1 rounded text-sm">
                                 {new Date(record.check_in_time).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
                               </span>
-                              {distIn !== null && (
+                              {record.check_in_lat && record.check_in_lng && (
                                 <a 
                                   href={`https://www.google.com/maps/search/?api=1&query=${record.check_in_lat},${record.check_in_lng}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="text-[10px] text-indigo-500 hover:text-indigo-700 hover:underline mt-1 flex items-center gap-1 font-medium transition"
-                                  title="คลิกเพื่อดูตำแหน่งบนแผนที่"
                                 >
-                                  📍 ห่าง {distIn} ม.
+                                  📍 {distIn !== null ? `ห่าง ${distIn} ม.` : 'ดูพิกัดบนแผนที่'}
                                 </a>
                               )}
                             </div>
@@ -204,15 +203,14 @@ export default function AttendanceAdminPage() {
                               <span className="text-rose-600 font-bold bg-rose-50 px-2 py-1 rounded text-sm">
                                 {new Date(record.check_out_time).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
                               </span>
-                              {distOut !== null && (
+                              {record.check_out_lat && record.check_out_lng && (
                                 <a 
                                   href={`https://www.google.com/maps/search/?api=1&query=${record.check_out_lat},${record.check_out_lng}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="text-[10px] text-indigo-500 hover:text-indigo-700 hover:underline mt-1 flex items-center gap-1 font-medium transition"
-                                  title="คลิกเพื่อดูตำแหน่งบนแผนที่"
                                 >
-                                  📍 ห่าง {distOut} ม.
+                                  📍 {distOut !== null ? `ห่าง ${distOut} ม.` : 'ดูพิกัดบนแผนที่'}
                                 </a>
                               )}
                             </div>
