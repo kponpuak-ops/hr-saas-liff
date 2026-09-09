@@ -18,38 +18,58 @@ export default function AnalyticsDashboard() {
     fetchDashboardStats()
   }, [])
 
-  const fetchDashboardStats = async () => {
+const fetchDashboardStats = async () => {
     setIsLoading(true)
     const todayStr = new Date().toISOString().split('T')[0]
 
     try {
-      // 1. จำนวนพนักงานทั้งหมด
+      // 1. ดึงข้อมูล Session และ Company ID ของแอดมินที่กำลังใช้งาน
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) return
+
+      const { data: currentUser } = await supabase
+        .from('users')
+        .select('company_id')
+        .eq('auth_id', session.user.id)
+        .single()
+
+      if (!currentUser?.company_id) return
+      
+      const companyId = currentUser.company_id
+
+      // 2. จำนวนพนักงานทั้งหมด (กรองเฉพาะบริษัทตัวเอง และซ่อนผู้ดูแลระบบ)
       const { count: employeeCount } = await supabase
         .from('users')
         .select('*', { count: 'exact', head: true })
+        .eq('company_id', companyId)
+        .neq('role', 'super_admin')
+        .neq('role', 'admin')
 
-      // 2. การลงเวลาวันนี้
+      // 3. การลงเวลาวันนี้
       const { data: attendanceData } = await supabase
         .from('attendance')
         .select('*')
+        // .eq('company_id', companyId) // 💡 เปิดคอมเมนต์บรรทัดนี้ หากตาราง attendance มีคอลัมน์ company_id
         .gte('check_in', `${todayStr}T00:00:00`)
         .lte('check_in', `${todayStr}T23:59:59`)
 
       const presentCount = attendanceData ? attendanceData.length : 0
       const lateCount = attendanceData ? attendanceData.filter(a => a.status === 'late').length : 0
 
-      // 3. คนที่ลาวันนี้ (ได้รับอนุมัติแล้ว และช่วงวันตรงกับวันนี้)
+      // 4. คนที่ลาวันนี้ (ได้รับอนุมัติแล้ว และช่วงวันตรงกับวันนี้)
       const { count: leaveCount } = await supabase
         .from('leaves')
         .select('*', { count: 'exact', head: true })
+        // .eq('company_id', companyId) // 💡 เปิดคอมเมนต์บรรทัดนี้ หากตาราง leaves มีคอลัมน์ company_id
         .eq('status', 'approved')
         .lte('start_date', todayStr)
         .gte('end_date', todayStr)
 
-      // 4. ใบลารออนุมัติ
+      // 5. ใบลารออนุมัติ
       const { count: pendingCount } = await supabase
         .from('leaves')
         .select('*', { count: 'exact', head: true })
+        // .eq('company_id', companyId) // 💡 เปิดคอมเมนต์บรรทัดนี้ หากตาราง leaves มีคอลัมน์ company_id
         .eq('status', 'pending')
 
       setStats({

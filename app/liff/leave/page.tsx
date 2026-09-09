@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 
 export default function LeavePage() {
   const [userDbId, setUserDbId] = useState<number | null>(null)
+  const [userCompanyId, setUserCompanyId] = useState<number | null>(null)
   
   // States สำหรับประเภทการลา
   const [leaveTypes, setLeaveTypes] = useState<any[]>([])
@@ -23,28 +24,34 @@ export default function LeavePage() {
   useEffect(() => {
     const initData = async () => {
       try {
-        // 1. ดึงข้อมูลประเภทการลาจากฐานข้อมูล
-        const { data: typesData } = await supabase
-          .from('leave_types')
-          .select('*')
-          .order('id', { ascending: true })
-          
-        if (typesData && typesData.length > 0) {
-          setLeaveTypes(typesData)
-          setLeaveType(typesData[0].name) // ตั้งค่าเริ่มต้นเป็นอันแรก
-        }
-
-        // 2. ตรวจสอบ LIFF
         await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID! })
+        
         if (liff.isLoggedIn()) {
           const profile = await liff.getProfile()
+          
+          // 1. ดึงข้อมูลพนักงาน (รวม company_id)
           const { data: userData } = await supabase
             .from('users')
-            .select('id')
+            .select('id, company_id')
             .eq('line_user_id', profile.userId)
             .single()
 
-          if (userData) setUserDbId(userData.id)
+          if (userData) {
+            setUserDbId(userData.id)
+            setUserCompanyId(userData.company_id)
+            
+            // 2. ดึงประเภทการลาเฉพาะของบริษัทพนักงาน
+            const { data: typesData } = await supabase
+              .from('leave_types')
+              .select('*')
+              .eq('company_id', userData.company_id)
+              .order('id', { ascending: true })
+              
+            if (typesData && typesData.length > 0) {
+              setLeaveTypes(typesData)
+              setLeaveType(typesData[0].name)
+            }
+          }
         } else {
           liff.login()
         }
@@ -86,7 +93,7 @@ export default function LeavePage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!userDbId) {
+    if (!userDbId || !userCompanyId) {
       setMessage('ไม่พบข้อมูลบัญชีพนักงาน กรุณาผูกบัญชีก่อน')
       return
     }
@@ -94,7 +101,8 @@ export default function LeavePage() {
     setIsSubmitting(true)
     setMessage('')
 
-    const { error } = await supabase
+    // บันทึกคำขอลา
+    const { data: newLeave, error } = await supabase
       .from('leaves')
       .insert([
         {
@@ -107,16 +115,30 @@ export default function LeavePage() {
           status: 'pending',
         },
       ])
+      .select()
+      .single()
 
     if (error) {
-      setMessage('เกิดข้อผิดพลาดในการยื่นใบลา')
+      setMessage('เกิดข้อผิดพลาดในการยื่นใบลา: ' + error.message)
     } else {
-      setMessage('ยื่นใบลาเรียบร้อยแล้ว! รอ HR อนุมัติ')
+      setMessage('ยื่นใบลาเรียบร้อยแล้ว! รอหัวหน้างานอนุมัติ')
+      
+      // เรียก API ส่งแจ้งเตือน โดยส่ง company_id ไปให้ API ตัดสินใจเรื่องสายอนุมัติ
+      fetch('/api/notify-leave', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          leaveId: newLeave.id, 
+          status: 'pending',
+          companyId: userCompanyId
+        }),
+      }).catch((err) => console.error('Notification error:', err))
+
+      // รีเซ็ตฟอร์ม
       setReason('')
       setStartDate('')
       setEndDate('')
       setAttachmentUrl('')
-      
       const fileInput = document.getElementById('file-upload') as HTMLInputElement
       if (fileInput) fileInput.value = ''
     }
@@ -124,7 +146,7 @@ export default function LeavePage() {
   }
 
   if (isLoading) {
-    return <div className="p-6 text-center text-slate-500 font-medium">กำลังโหลด...</div>
+    return <div className="p-6 text-center text-slate-500 font-medium">กำลังโหลดข้อมูลระบบ...</div>
   }
 
   if (!userDbId) {
@@ -135,7 +157,6 @@ export default function LeavePage() {
     )
   }
 
-  // หาข้อมูลเงื่อนไขของการลาที่เลือกอยู่
   const selectedLeaveInfo = leaveTypes.find(l => l.name === leaveType)
 
   return (
@@ -172,7 +193,6 @@ export default function LeavePage() {
               ))}
             </select>
 
-            {/* กล่องแสดงเงื่อนไขการลาแบบ Real-time */}
             {selectedLeaveInfo && (
               <div className="mt-3 p-3 bg-indigo-50 border border-indigo-100 rounded-xl text-xs space-y-1.5">
                 <div className="flex justify-between items-center text-slate-600">
@@ -204,7 +224,7 @@ export default function LeavePage() {
                 required
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                className="w-full p-3 border border-slate-300 rounded-xl font-medium focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                className="w-full p-3 border border-slate-300 rounded-xl font-medium focus:ring-2 focus:ring-indigo-500 outline-none text-sm bg-white"
               />
             </div>
             <div>
@@ -214,7 +234,7 @@ export default function LeavePage() {
                 required
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
-                className="w-full p-3 border border-slate-300 rounded-xl font-medium focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                className="w-full p-3 border border-slate-300 rounded-xl font-medium focus:ring-2 focus:ring-indigo-500 outline-none text-sm bg-white"
               />
             </div>
           </div>
@@ -263,7 +283,7 @@ export default function LeavePage() {
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               placeholder="ระบุเหตุผลเพิ่มเติม..."
-              className="w-full p-3 border border-slate-300 rounded-xl font-medium focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+              className="w-full p-3 border border-slate-300 rounded-xl font-medium focus:ring-2 focus:ring-indigo-500 outline-none text-sm bg-white"
             />
           </div>
 

@@ -10,6 +10,8 @@ type BenefitItem = {
 
 export default function EmployeesPage() {
   const [employees, setEmployees] = useState<any[]>([])
+  // State เก็บข้อมูลโควต้าพนักงาน
+  const [companyQuota, setCompanyQuota] = useState({ max: 0, current: 0 })
   const [isLoading, setIsLoading] = useState<boolean>(true)
   const [showAddForm, setShowAddForm] = useState<boolean>(false)
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false)
@@ -39,7 +41,7 @@ export default function EmployeesPage() {
     employee_id: '',
     first_name: '',
     last_name: '',
-    role: 'Staff',
+    role: 'staff',
     email: '',
     phone: '',
     emergency_contact: '',
@@ -69,8 +71,41 @@ export default function EmployeesPage() {
   }
 
   const fetchEmployees = async () => {
-    const { data } = await supabase.from('users').select('*').order('created_at', { ascending: false })
-    if (data) setEmployees(data)
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) return
+
+    const { data: currentUser } = await supabase
+      .from('users')
+      .select('company_id')
+      .eq('auth_id', session.user.id)
+      .single()
+
+    if (!currentUser?.company_id) return
+
+    // ดึงโควต้าของบริษัท (max_employees)
+    const { data: companyData } = await supabase
+      .from('companies')
+      .select('max_employees')
+      .eq('id', currentUser.company_id)
+      .single()
+
+    // ดึงรายชื่อพนักงาน
+    const { data } = await supabase
+      .from('users')
+      .select('*')
+      .eq('company_id', currentUser.company_id)
+      .neq('role', 'super_admin')
+      //.neq('role', 'admin')
+      .order('created_at', { ascending: false })
+
+    if (data) {
+      setEmployees(data)
+      // บันทึกข้อมูลโควต้า (จำนวนที่มีอยู่ vs จำนวนที่สมัครไว้)
+      setCompanyQuota({ 
+        max: companyData?.max_employees || 0, 
+        current: data.length 
+      })
+    }
   }
 
   const fetchMasterData = async () => {
@@ -290,12 +325,22 @@ export default function EmployeesPage() {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">👥 จัดการรายชื่อพนักงาน</h1>
-          <p className="text-slate-500 text-sm">ข้อมูลส่วนตัว ประเภทการจ้างงาน ฐานเงินเดือน/ค่าจ้าง สวัสดิการ และตำแหน่งงาน</p>
+          <p className="text-slate-500 text-sm mt-1">
+            ข้อมูลส่วนตัว ประเภทการจ้างงาน • โควต้าใช้งาน: <span className={companyQuota.current >= companyQuota.max ? 'text-rose-600 font-bold' : 'text-emerald-600 font-bold'}>{companyQuota.current} / {companyQuota.max}</span> คน
+          </p>
         </div>
         <button
           onClick={() => {
-            if (showAddForm) handleCancelForm()
-            else setShowAddForm(true)
+            if (showAddForm) {
+              handleCancelForm()
+            } else {
+              // 💡 เช็คโควต้าก่อนเปิดฟอร์มเพิ่มพนักงานใหม่
+              if (companyQuota.current >= companyQuota.max) {
+                alert(`⚠️ ไม่สามารถเพิ่มพนักงานได้\nโควต้าของคุณเต็มแล้ว (${companyQuota.current}/${companyQuota.max} คน)\n\nโปรดติดต่อผู้ให้บริการ (Super Admin) เพื่ออัปเกรดแพ็กเกจ`)
+                return
+              }
+              setShowAddForm(true)
+            }
           }}
           className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all shadow-sm flex items-center gap-2 ${
             showAddForm ? 'bg-slate-200 text-slate-700 hover:bg-slate-300' : 'bg-indigo-600 text-white hover:bg-indigo-700'
@@ -441,9 +486,9 @@ export default function EmployeesPage() {
                   value={formData.role}
                   onChange={(e) => setFormData({ ...formData, role: e.target.value })}
                 >
-                  <option value="Staff">พนักงานทั่วไป (Staff)</option>
-                  <option value="Manager">ผู้จัดการ (Manager)</option>
-                  <option value="HR">ฝ่ายบุคคล (HR Admin)</option>
+                  <option value="staff">พนักงานทั่วไป (Staff)</option>
+                  <option value="manager">หัวหน้าแผนก (Manager)</option>
+                  <option value="admin">ผู้ดูแลระบบ (Admin)</option>
                 </select>
               </div>
               <div>

@@ -77,7 +77,7 @@ export default function LeaveHistoryPage() {
       }
 
       if (leave.status === 'approved') summary[leave.leave_type].approved += diffDays
-      if (leave.status === 'pending') summary[leave.leave_type].pending += diffDays
+      if (leave.status === 'pending' || leave.status === 'manager_approved') summary[leave.leave_type].pending += diffDays
       if (leave.status === 'rejected') summary[leave.leave_type].rejected += diffDays
     })
 
@@ -87,6 +87,7 @@ export default function LeaveHistoryPage() {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'approved': return 'bg-emerald-100 text-emerald-700 border-emerald-200'
+      case 'manager_approved': return 'bg-blue-100 text-blue-700 border-blue-200'
       case 'rejected': return 'bg-rose-100 text-rose-700 border-rose-200'
       default: return 'bg-amber-100 text-amber-700 border-amber-200'
     }
@@ -95,8 +96,9 @@ export default function LeaveHistoryPage() {
   const getStatusText = (status: string) => {
     switch (status) {
       case 'approved': return '✅ อนุมัติแล้ว'
+      case 'manager_approved': return '🟡 รอ HR อนุมัติ'
       case 'rejected': return '❌ ไม่อนุมัติ'
-      default: return '⏳ รอตรวจสอบ'
+      default: return '⏳ รอดำเนินการ'
     }
   }
 

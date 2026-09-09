@@ -1,51 +1,118 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 
+export const dynamic = 'force-dynamic'
+
+// ฟังก์ชันสำหรับส่งข้อความผ่าน LINE Messaging API แบบ Multicast
+async function pushLineMessage(userIds: string[], text: string) {
+  if (!process.env.LINE_CHANNEL_ACCESS_TOKEN || userIds.length === 0) return;
+
+  const url = 'https://api.line.me/v2/bot/message/multicast';
+  const headers = {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`
+  };
+
+  const body = {
+    to: userIds,
+    messages: [{ type: 'text', text }]
+  };
+
+  try {
+    await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+  } catch (error) {
+    console.error('Error sending LINE message:', error);
+  }
+}
+
 export async function POST(req: Request) {
   try {
-    const { otId, status } = await req.json()
+    const body = await req.json()
+    const { otId, status } = body
 
-    // ดึงข้อมูลคำขอ OT และข้อมูลพนักงาน
-    const { data: otData, error } = await supabase
+    // 1. ดึงข้อมูลใบโอทีและพนักงาน
+    const { data: ot, error: otError } = await supabase
       .from('ot_requests')
-      .select('*, users(line_user_id, first_name)')
+      .select('*, users!inner(*)')
       .eq('id', otId)
       .single()
 
-    if (error || !otData) throw new Error('OT request not found')
+    if (otError || !ot) throw new Error('ไม่พบข้อมูลการขอ OT')
 
-    const lineUserId = otData.users?.line_user_id
+    const companyId = ot.users.company_id
+    const department = ot.users.department
+    const employeeName = `${ot.users.first_name} ${ot.users.last_name}`
+    const employeeLineId = ot.users.line_user_id
+
+    // 2. เช็กการตั้งค่าบริษัทว่าอนุมัติกี่ขั้น
+    const { data: settings } = await supabase
+      .from('company_settings')
+      .select('approval_workflow')
+      .eq('company_id', companyId)
+      .single()
+
+    const isTwoStep = settings?.approval_workflow === 'manager_approval'
+
+    // 3. กำหนดข้อความและผู้รับตามสถานะ
+    let targetLineIds: string[] = []
+    let message = ''
     
-    if (!lineUserId) {
-      return NextResponse.json({ success: true, message: 'No LINE ID found' })
+    // แปลงรูปแบบวันที่และเวลาให้อ่านง่าย
+    const otDate = new Date(ot.request_date).toLocaleDateString('th-TH')
+    const timeRange = `${ot.start_time.substring(0,5)} - ${ot.end_time.substring(0,5)} น.`
+
+    if (status === 'pending') {
+      if (isTwoStep) {
+        // ส่งหา Manager ในแผนกเดียวกัน
+        const { data: managers } = await supabase
+          .from('users')
+          .select('line_user_id')
+          .eq('company_id', companyId)
+          .eq('department', department)
+          .eq('role', 'manager')
+          .not('line_user_id', 'is', null)
+        
+        targetLineIds = managers?.map(m => m.line_user_id) || []
+        message = `⏱️ มีคำขอ OT ใหม่ (รอหัวหน้าอนุมัติ)\nจาก: ${employeeName}\nวันที่: ${otDate}\nเวลา: ${timeRange}\nกรุณาตรวจสอบในระบบ`
+      } else {
+        // ส่งหา Admin ทันที (กรณี Free/Basic)
+        const { data: admins } = await supabase
+          .from('users')
+          .select('line_user_id')
+          .eq('company_id', companyId)
+          .eq('role', 'admin')
+          .not('line_user_id', 'is', null)
+        
+        targetLineIds = admins?.map(a => a.line_user_id) || []
+        message = `⏱️ มีคำขอ OT ใหม่ (รอดำเนินการ)\nจาก: ${employeeName}\nวันที่: ${otDate}\nเวลา: ${timeRange}\nกรุณาตรวจสอบในระบบ`
+      }
+    } 
+    else if (status === 'manager_approved') {
+      // ส่งหา Admin หลังจาก Manager อนุมัติแล้ว
+      const { data: admins } = await supabase
+        .from('users')
+        .select('line_user_id')
+        .eq('company_id', companyId)
+        .eq('role', 'admin')
+        .not('line_user_id', 'is', null)
+      
+      targetLineIds = admins?.map(a => a.line_user_id) || []
+      message = `🟡 หัวหน้างานอนุมัติ OT แล้ว (รอ HR)\nจาก: ${employeeName}\nวันที่: ${otDate}\nเวลา: ${timeRange}\nกรุณาตรวจสอบขั้นสุดท้ายในระบบ`
+    } 
+    else if (status === 'approved' || status === 'rejected') {
+      // ส่งกลับหาพนักงานเพื่อแจ้งผล (ใช้โครงสร้างข้อความเดิมที่คุณคุ้นเคย)
+      if (employeeLineId) targetLineIds = [employeeLineId]
+      const statusText = status === 'approved' ? '✅ ได้รับการอนุมัติแล้ว' : '❌ ไม่ได้รับการอนุมัติ'
+      message = `📢 แจ้งเตือนผลการขอ OT\n\nเรียนคุณ ${employeeName}\n\nวันที่: ${otDate}\nเวลา: ${timeRange}\nสถานะ: ${statusText}`
     }
 
-    const statusIcon = status === 'approved' ? '✅' : '❌'
-    const statusText = status === 'approved' ? 'อนุมัติ' : 'ไม่อนุมัติ'
-    const otDate = new Date(otData.request_date).toLocaleDateString('th-TH', { 
-        year: 'numeric', month: 'long', day: 'numeric' 
-    })
-    const timeText = `${otData.start_time.substring(0, 5)} - ${otData.end_time.substring(0, 5)} น.`
-
-    const message = `${statusIcon} แจ้งเตือนผลการขอทำ OT\n\nสถานะ: ${statusText}\nวันที่: ${otDate}\nเวลา: ${timeText}\n\nตรวจสอบรายละเอียดเพิ่มเติมได้ที่เมนู "ยื่นขอ OT" ครับ`
-
-    const lineResponse = await fetch('https://api.line.me/v2/bot/message/push', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
-      },
-      body: JSON.stringify({
-        to: lineUserId,
-        messages: [{ type: 'text', text: message }],
-      }),
-    })
-
-    if (!lineResponse.ok) {
-      throw new Error('Failed to send LINE message')
+    // 4. ยิง API ของ LINE
+    if (targetLineIds.length > 0 && message) {
+      await pushLineMessage(targetLineIds, message)
     }
 
     return NextResponse.json({ success: true })
+
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }

@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 
 export default function OTRequestPage() {
   const [userDbId, setUserDbId] = useState<number | null>(null)
+  const [userCompanyId, setUserCompanyId] = useState<number | null>(null)
   
   const [requestDate, setRequestDate] = useState('')
   const [startTime, setStartTime] = useState('')
@@ -22,13 +23,18 @@ export default function OTRequestPage() {
         await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID! })
         if (liff.isLoggedIn()) {
           const profile = await liff.getProfile()
+          
+          // ดึงข้อมูลพนักงาน รวมถึง company_id เพื่อใช้กรองการแจ้งเตือน
           const { data: userData } = await supabase
             .from('users')
-            .select('id')
+            .select('id, company_id')
             .eq('line_user_id', profile.userId)
             .single()
 
-          if (userData) setUserDbId(userData.id)
+          if (userData) {
+            setUserDbId(userData.id)
+            setUserCompanyId(userData.company_id)
+          }
         } else {
           liff.login()
         }
@@ -43,7 +49,7 @@ export default function OTRequestPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!userDbId) {
+    if (!userDbId || !userCompanyId) {
       setMessage('ไม่พบข้อมูลบัญชีพนักงาน กรุณาผูกบัญชีก่อน')
       return
     }
@@ -51,7 +57,8 @@ export default function OTRequestPage() {
     setIsSubmitting(true)
     setMessage('')
 
-    const { error } = await supabase
+    // บันทึกคำขอ OT พร้อมดึงข้อมูลกลับมาเพื่อเอา ID ไปส่งแจ้งเตือน
+    const { data: newOT, error } = await supabase
       .from('ot_requests')
       .insert([
         {
@@ -63,11 +70,26 @@ export default function OTRequestPage() {
           status: 'pending',
         },
       ])
+      .select()
+      .single()
 
     if (error) {
       setMessage('เกิดข้อผิดพลาดในการยื่นขอ OT')
     } else {
-      setMessage('ยื่นขอ OT เรียบร้อยแล้ว! รอหัวหน้าอนุมัติ')
+      setMessage('ยื่นขอ OT เรียบร้อยแล้ว! รอตรวจสอบ')
+      
+      // เรียก API ส่งแจ้งเตือน พร้อมส่ง companyId ไปเช็กสายการอนุมัติ
+      fetch('/api/notify-ot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          otId: newOT.id, 
+          status: 'pending',
+          companyId: userCompanyId 
+        }),
+      }).catch((err) => console.error('Notification error:', err))
+
+      // รีเซ็ตฟอร์ม
       setRequestDate('')
       setStartTime('')
       setEndTime('')

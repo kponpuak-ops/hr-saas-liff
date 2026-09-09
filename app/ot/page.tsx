@@ -17,13 +17,47 @@ export default function OTAdminPage() {
 
   const fetchOTRequests = async () => {
     setIsLoading(true)
-    const { data, error } = await supabase
+
+    // 1. ตรวจสอบ Session และดึงข้อมูลผู้ใช้ปัจจุบัน
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) {
+      setIsLoading(false)
+      return
+    }
+
+    const { data: currentUser } = await supabase
+      .from('users')
+      .select('id,company_id, role, department')
+      .eq('auth_id', session.user.id)
+      .single()
+
+    if (!currentUser?.company_id) {
+      setIsLoading(false)
+      return
+    }
+
+    // 2. สร้าง Query ดึงเฉพาะ OT ของบริษัทตัวเอง
+    let query = supabase
       .from('ot_requests')
-      .select(`
-        *,
-        users (*)
-      `)
+      .select(`*, users!inner (*)`)
+      .eq('users.company_id', currentUser.company_id)
       .order('created_at', { ascending: false })
+
+    // 3. กรองข้อมูลตามสิทธิ์
+    if (currentUser.role === 'manager') {
+      // หัวหน้าแผนก: เห็นเฉพาะพนักงานทั่วไป (staff) ในแผนก (department) เดียวกัน
+      query = query
+        .eq('users.department', currentUser.department)
+        .eq('users.role', 'staff')
+    } else if (currentUser.role === 'admin') {
+      // แอดมิน: เห็นของทุกคนในบริษัท ยกเว้น Super Admin
+      query = query.neq('users.role', 'super_admin')
+    } else {
+      // พนักงานทั่วไป: เห็นแค่ของตัวเอง
+      query = query.eq('user_id', currentUser.id)
+    }
+
+    const { data, error } = await query
 
     if (error) {
       console.error('Error fetching OT requests:', error)
@@ -33,8 +67,9 @@ export default function OTAdminPage() {
     setIsLoading(false)
   }
 
-  const handleUpdateStatus = async (otId: number, status: 'approved' | 'rejected') => {
-    if (!confirm(`คุณต้องการ ${status === 'approved' ? 'อนุมัติ' : 'ไม่อนุมัติ'} รายการ OT นี้ใช่หรือไม่?`)) return;
+  const handleUpdateStatus = async (otId: number, status: 'approved' | 'rejected' | 'manager_approved') => {
+    const actionText = status === 'approved' ? 'อนุมัติขั้นสุดท้าย' : status === 'manager_approved' ? 'อนุมัติ (รอ HR)' : 'ไม่อนุมัติ'
+    if (!confirm(`คุณต้องการ ${actionText} รายการ OT นี้ใช่หรือไม่?`)) return;
 
     const { error } = await supabase
       .from('ot_requests')
@@ -44,7 +79,6 @@ export default function OTAdminPage() {
     if (error) {
       alert('เกิดข้อผิดพลาดในการอัปเดตสถานะ')
     } else {
-      // คำสั่งเรียก API ให้ส่งแจ้งเตือน LINE
       fetch('/api/notify-ot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -60,16 +94,12 @@ export default function OTAdminPage() {
 
   const formatDate = (dateStr: string) => {
     if (!dateStr) return '-'
-    return new Date(dateStr).toLocaleDateString('th-TH', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    })
+    return new Date(dateStr).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' })
   }
 
   const formatTime = (timeStr: string) => {
     if (!timeStr) return '-'
-    return timeStr.substring(0, 5) // แปลง 17:00:00 เป็น 17:00
+    return timeStr.substring(0, 5)
   }
 
   const calculateHours = (start: string, end: string) => {
@@ -77,7 +107,7 @@ export default function OTAdminPage() {
     const [h1, m1] = start.split(':').map(Number)
     const [h2, m2] = end.split(':').map(Number)
     let diff = (h2 + m2 / 60) - (h1 + m1 / 60)
-    if (diff < 0) diff += 24 // กรณีข้ามคืน เช่น 22:00 ถึง 02:00
+    if (diff < 0) diff += 24
     return diff.toFixed(1)
   }
 
@@ -110,7 +140,7 @@ export default function OTAdminPage() {
             className="w-full p-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500"
           />
         </div>
-        <div className="w-48">
+        <div className="w-56">
           <label className="block text-xs font-bold text-slate-500 mb-1">กรองสถานะ</label>
           <select 
             value={statusFilter}
@@ -118,8 +148,9 @@ export default function OTAdminPage() {
             className="w-full p-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
           >
             <option value="all">ทั้งหมด</option>
-            <option value="pending">⏳ รออนุมัติ</option>
-            <option value="approved">✅ อนุมัติแล้ว</option>
+            <option value="pending">⏳ รอดำเนินการ (ใหม่)</option>
+            <option value="manager_approved">🟡 รอ HR อนุมัติ (ผ่านหัวหน้าแล้ว)</option>
+            <option value="approved">✅ อนุมัติเสร็จสิ้น</option>
             <option value="rejected">❌ ไม่อนุมัติ</option>
           </select>
         </div>
@@ -162,8 +193,9 @@ export default function OTAdminPage() {
                       </span>
                     </td>
                     <td className="py-4 text-center">
-                      {item.status === 'pending' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-700">⏳ รออนุมัติ</span>}
-                      {item.status === 'approved' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700">✅ อนุมัติแล้ว</span>}
+                      {item.status === 'pending' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-700">⏳ รอดำเนินการ</span>}
+                      {item.status === 'manager_approved' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-700">🟡 รอ HR อนุมัติ</span>}
+                      {item.status === 'approved' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700">✅ อนุมัติเสร็จสิ้น</span>}
                       {item.status === 'rejected' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-700">❌ ไม่อนุมัติ</span>}
                     </td>
                     <td className="py-4 text-center">
@@ -182,7 +214,6 @@ export default function OTAdminPage() {
         )}
       </div>
 
-      {/* Modal ดูรายละเอียด OT */}
       {selectedOT && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-fade-in">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col">
@@ -237,7 +268,7 @@ export default function OTAdminPage() {
             </div>
 
             <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
-              {selectedOT.status === 'pending' ? (
+              {(selectedOT.status === 'pending' || selectedOT.status === 'manager_approved') ? (
                 <>
                   <button
                     onClick={() => handleUpdateStatus(selectedOT.id, 'rejected')}
@@ -249,7 +280,7 @@ export default function OTAdminPage() {
                     onClick={() => handleUpdateStatus(selectedOT.id, 'approved')}
                     className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-bold transition-colors shadow-sm"
                   >
-                    ✅ อนุมัติ OT
+                    ✅ อนุมัติขั้นสุดท้าย (HR)
                   </button>
                 </>
               ) : (

@@ -18,11 +18,47 @@ export default function LeavesAdminPage() {
 
   const fetchData = async () => {
     setIsLoading(true)
-    
-    // ดึงข้อมูลการลาและประเภทการลาพร้อมกัน
+
+    // 1. ดึงข้อมูล Session ปัจจุบันของผู้ใช้ที่กำลังใช้งานอยู่
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) return
+
+    // 2. ดึงข้อมูล Profile ของผู้ที่กำลังใช้งาน เพื่อดูว่าเป็นใคร สิทธิ์อะไร อยู่บริษัทและแผนกไหน
+    const { data: currentUser } = await supabase
+      .from('users')
+      .select('company_id, role, department')
+      .eq('auth_id', session.user.id)
+      .single()
+
+    if (!currentUser?.company_id) return
+
+    // 3. เริ่มดึงข้อมูลการลา โดยต้องเชื่อมกับตาราง users เพื่อตรวจสอบเงื่อนไข
+    let query = supabase
+      .from('leaves')
+      .select(`*, users!inner (*)`) // ใช้ !inner เพื่อให้กรองจากข้อมูลตาราง users ได้
+      .eq('users.company_id', currentUser.company_id) // กรองเฉพาะบริษัทเดียวกันเสมอ
+      .order('created_at', { ascending: false })
+
+    // 4. ตรวจสอบสิทธิ์และเพิ่มเงื่อนไขการดึงข้อมูล
+    if (currentUser.role === 'manager') {
+      // 4.1 ถ้าเป็น Manager ให้เห็นเฉพาะลูกน้องที่เป็น 'staff' ใน 'department' เดียวกัน
+      query = query
+        .eq('users.department', currentUser.department)
+        .eq('users.role', 'staff')
+    } else if (currentUser.role === 'admin') {
+      // 4.2 ถ้าเป็น Admin ให้เห็นพนักงานทุกคนที่ไม่ใช่ admin/super_admin ด้วยกัน (เห็นทั้ง manager และ staff)
+      query = query
+        .neq('users.role', 'super_admin')
+        .neq('users.role', 'admin')
+    } else {
+      // 4.3 ถ้าหลุดเข้ามาเป็น Staff (ซึ่งจริงๆ ไม่ควรเข้าหน้านี้ได้) ให้แสดงเฉพาะของตัวเอง
+      query = query.eq('users.auth_id', session.user.id)
+    }
+
     const [leavesRes, typesRes] = await Promise.all([
-      supabase.from('leaves').select(`*, users (*)`).order('created_at', { ascending: false }),
-      supabase.from('leave_types').select('*')
+      query,
+      // ดึงประเภทการลาเฉพาะของบริษัทนี้
+      supabase.from('leave_types').select('*').eq('company_id', currentUser.company_id)
     ])
 
     if (leavesRes.error) console.error('Error fetching leaves:', leavesRes.error)

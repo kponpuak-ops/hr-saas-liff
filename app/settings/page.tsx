@@ -2,11 +2,14 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
-import Link from 'next/link'
 
 export default function SettingsPage() {
-    const [activeTab, setActiveTab] = useState<'structure' | 'work_hours' | 'holidays'>('work_hours')
+    const [activeTab, setActiveTab] = useState<'work_hours' | 'holidays' | 'structure' | 'leave_types'>('work_hours')
     const [isLoading, setIsLoading] = useState<boolean>(true)
+    
+    // --- State สำหรับ Multi-tenant และสิทธิ์ ---
+    const [companyId, setCompanyId] = useState<number | null>(null)
+    const [companyPackage, setCompanyPackage] = useState<string>('free')
 
     // --- 1. Master Data State (โครงสร้างองค์กร) ---
     const [departments, setDepartments] = useState<any[]>([])
@@ -16,7 +19,8 @@ export default function SettingsPage() {
     const [newPos, setNewPos] = useState('')
     const [newBenefit, setNewBenefit] = useState('')
 
-    // --- 2. Work Hours, Shift & OT State ---
+    // --- 2. Work Hours, Shift & Workflow State ---
+    const [approvalWorkflow, setApprovalWorkflow] = useState<'admin_only' | 'manager_approval'>('admin_only')
     const [hasShifts, setHasShifts] = useState<boolean>(false)
     const [defaultStartTime, setDefaultStartTime] = useState('08:30')
     const [defaultEndTime, setDefaultEndTime] = useState('17:30')
@@ -24,7 +28,6 @@ export default function SettingsPage() {
     const [lateDeduction, setLateDeduction] = useState(0)
     const [shifts, setShifts] = useState<any[]>([])
     
-    // สเตทสำหรับเก็บค่า OT
     const [otRateNormal, setOtRateNormal] = useState<number>(1.5)
     const [otRateHolidayWork, setOtRateHolidayWork] = useState<number>(2.0)
     const [otRateHolidayOt, setOtRateHolidayOt] = useState<number>(3.0)
@@ -48,53 +51,82 @@ export default function SettingsPage() {
 
     // --- 4. Holiday Calendar State ---
     const [holidays, setHolidays] = useState<any[]>([])
-    // เอา ot_rate ออกจากฟอร์มสร้างวันหยุดแล้ว
     const [newHoliday, setNewHoliday] = useState({
         holiday_date: '',
         name: '',
         type: 'traditional',
     })
 
+    // --- 5. Leave Types State ---
+    const [leaveTypes, setLeaveTypes] = useState<any[]>([])
+
     useEffect(() => {
-        fetchAllData()
+        fetchInitialData()
     }, [])
 
-    const fetchAllData = async () => {
+    const fetchInitialData = async () => {
         setIsLoading(true)
+        
+        // 1. ตรวจสอบผู้ใช้ปัจจุบัน
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session) return
+
+        // 2. หา company_id ของผู้ใช้
+        const { data: userData } = await supabase
+            .from('users')
+            .select('company_id')
+            .eq('auth_id', session.user.id)
+            .single()
+            
+        if (!userData?.company_id) return
+        const cId = userData.company_id
+        setCompanyId(cId)
+
+        // 3. หาแพ็กเกจของบริษัทเพื่อจำกัดสิทธิ์ฟีเจอร์
+        const { data: compData } = await supabase
+            .from('companies')
+            .select('package_tier')
+            .eq('id', cId)
+            .single()
+            
+        if (compData && compData.package_tier) {
+            const cleanPackage = compData.package_tier.replace(/"/g, '').toLowerCase()
+            setCompanyPackage(cleanPackage)
+        }
+
+        // 4. ดึงข้อมูลทั้งหมดโดยใช้ company_id กรอง
         await Promise.all([
-            fetchMasterData(),
-            fetchWorkSettings(),
-            fetchShifts(),
-            fetchHolidays(),
+            fetchMasterData(cId),
+            fetchWorkSettings(cId),
+            fetchShifts(cId),
+            fetchHolidays(cId),
+            fetchLeaveTypes(cId),
         ])
         setIsLoading(false)
     }
 
     // --- Fetchers ---
-    const fetchMasterData = async () => {
-        const { data: deptData } = await supabase.from('departments').select('*').order('id', { ascending: true })
-        const { data: posData } = await supabase.from('positions').select('*').order('id', { ascending: true })
-        const { data: benData } = await supabase.from('benefit_master').select('*').order('id', { ascending: true })
+    const fetchMasterData = async (cId: number) => {
+        const { data: deptData } = await supabase.from('departments').select('*').eq('company_id', cId).order('id', { ascending: true })
+        const { data: posData } = await supabase.from('positions').select('*').eq('company_id', cId).order('id', { ascending: true })
+        const { data: benData } = await supabase.from('benefit_master').select('*').eq('company_id', cId).order('id', { ascending: true })
         if (deptData) setDepartments(deptData)
         if (posData) setPositions(posData)
         if (benData) setBenefits(benData)
     }
 
-    const fetchWorkSettings = async () => {
-        const { data } = await supabase.from('company_settings').select('*').eq('id', 1).single()
+    const fetchWorkSettings = async (cId: number) => {
+        const { data } = await supabase.from('company_settings').select('*').eq('company_id', cId).single()
         if (data) {
+            setApprovalWorkflow(data.approval_workflow || 'admin_only')
             setHasShifts(data.has_shifts)
             setDefaultStartTime(data.default_start_time?.substring(0, 5) || '08:30')
             setDefaultEndTime(data.default_end_time?.substring(0, 5) || '17:30')
             setLateBufferMinutes(data.late_buffer_minutes || 0)
             setLateDeduction(data.late_deduction_per_minute || 0)
-
-            // ดึงค่า OT
             setOtRateNormal(data.ot_rate_normal ?? 1.5)
             setOtRateHolidayWork(data.ot_rate_holiday_work ?? 2.0)
             setOtRateHolidayOt(data.ot_rate_holiday_ot ?? 3.0)
-
-            // ดึงค่าประกันสังคม
             setSsEnabled(data.ss_enabled ?? true)
             setSsEmployeeRate(data.ss_employee_rate ?? 5.0)
             setSsEmployerRate(data.ss_employer_rate ?? 5.0)
@@ -103,21 +135,29 @@ export default function SettingsPage() {
         }
     }
 
-    const fetchShifts = async () => {
-        const { data } = await supabase.from('work_shifts').select('*').order('id', { ascending: true })
+    const fetchShifts = async (cId: number) => {
+        const { data } = await supabase.from('work_shifts').select('*').eq('company_id', cId).order('id', { ascending: true })
         if (data) setShifts(data)
     }
 
-    const fetchHolidays = async () => {
-        const { data } = await supabase.from('company_holidays').select('*').order('holiday_date', { ascending: true })
+    const fetchHolidays = async (cId: number) => {
+        const { data } = await supabase.from('company_holidays').select('*').eq('company_id', cId).order('holiday_date', { ascending: true })
         if (data) setHolidays(data)
+    }
+
+    const fetchLeaveTypes = async (cId: number) => {
+        const { data } = await supabase.from('leave_types').select('*').eq('company_id', cId).order('id', { ascending: true })
+        if (data) setLeaveTypes(data)
     }
 
     // --- Handlers: Work Settings & Social Security ---
     const handleSaveWorkSettings = async () => {
+        if (!companyId) return
         setIsSavingSettings(true)
+        
         const { error } = await supabase.from('company_settings').upsert({
-            id: 1,
+            company_id: companyId,
+            approval_workflow: approvalWorkflow,
             has_shifts: hasShifts,
             default_start_time: defaultStartTime,
             default_end_time: defaultEndTime,
@@ -132,7 +172,7 @@ export default function SettingsPage() {
             ss_min_salary: ssMinSalary,
             ss_max_salary: ssMaxSalary,
             updated_at: new Date().toISOString(),
-        })
+        }, { onConflict: 'company_id' })
 
         if (error) alert('บันทึกไม่สำเร็จ: ' + error.message)
         else alert('บันทึกการตั้งค่าเรียบร้อยแล้ว')
@@ -141,9 +181,9 @@ export default function SettingsPage() {
 
     const handleAddShift = async (e: React.FormEvent) => {
         e.preventDefault()
-        if (!newShift.shift_name.trim()) return
+        if (!newShift.shift_name.trim() || !companyId) return
 
-        const { error } = await supabase.from('work_shifts').insert([newShift])
+        const { error } = await supabase.from('work_shifts').insert([{ ...newShift, company_id: companyId }])
         if (error) alert('เกิดข้อผิดพลาด: ' + error.message)
         else {
             setNewShift({
@@ -153,109 +193,142 @@ export default function SettingsPage() {
                 late_buffer_minutes: 10,
                 late_deduction_per_minute: 0
             })
-            fetchShifts()
+            fetchShifts(companyId)
         }
     }
 
     const handleDeleteShift = async (id: number) => {
-        if (!confirm('ยืนยันการลบกะการทำงานนี้?')) return
-        const { error } = await supabase.from('work_shifts').delete().eq('id', id)
-        if (!error) fetchShifts()
+        if (!companyId || !confirm('ยืนยันการลบกะการทำงานนี้?')) return
+        const { error } = await supabase.from('work_shifts').delete().eq('id', id).eq('company_id', companyId)
+        if (!error) fetchShifts(companyId)
     }
 
     // --- Handlers: Holidays ---
     const handleAddHoliday = async (e: React.FormEvent) => {
         e.preventDefault()
-        if (!newHoliday.holiday_date || !newHoliday.name.trim()) {
+        if (!newHoliday.holiday_date || !newHoliday.name.trim() || !companyId) {
             alert('กรุณากรอกวันที่และชื่อวันหยุด')
             return
         }
 
-        const { error } = await supabase.from('company_holidays').insert([newHoliday])
+        const { error } = await supabase.from('company_holidays').insert([{ ...newHoliday, company_id: companyId }])
         if (error) alert('เกิดข้อผิดพลาด: ' + error.message)
         else {
             setNewHoliday({ holiday_date: '', name: '', type: 'traditional' })
-            fetchHolidays()
+            fetchHolidays(companyId)
         }
     }
 
     const handleDeleteHoliday = async (id: number) => {
-        if (!confirm('ยืนยันการลบวันหยุดนี้?')) return
-        const { error } = await supabase.from('company_holidays').delete().eq('id', id)
-        if (!error) fetchHolidays()
+        if (!companyId || !confirm('ยืนยันการลบวันหยุดนี้?')) return
+        const { error } = await supabase.from('company_holidays').delete().eq('id', id).eq('company_id', companyId)
+        if (!error) fetchHolidays(companyId)
     }
 
     // --- Handlers: Master Data ---
     const handleAddMaster = async (table: string, fieldName: string, value: string, resetFn: () => void) => {
-        if (!value.trim()) return
-        const { error } = await supabase.from(table).insert([{ [fieldName]: value.trim() }])
+        if (!value.trim() || !companyId) return
+        const { error } = await supabase.from(table).insert([{ [fieldName]: value.trim(), company_id: companyId }])
         if (error) alert('เกิดข้อผิดพลาด: ' + error.message)
         else {
             resetFn()
-            fetchMasterData()
+            fetchMasterData(companyId)
         }
     }
 
     const handleDeleteMaster = async (table: string, id: number) => {
-        if (!confirm('ยืนยันการลบรายการนี้?')) return
-        const { error } = await supabase.from(table).delete().eq('id', id)
-        if (!error) fetchMasterData()
+        if (!companyId || !confirm('ยืนยันการลบรายการนี้?')) return
+        const { error } = await supabase.from(table).delete().eq('id', id).eq('company_id', companyId)
+        if (!error) fetchMasterData(companyId)
+    }
+
+    // --- Handlers: Leave Types ---
+    const toggleLeaveSetting = async (id: number, field: string, currentValue: boolean) => {
+        if (!companyId) return
+        const { error } = await supabase.from('leave_types').update({ [field]: !currentValue }).eq('id', id)
+        if (error) alert('เกิดข้อผิดพลาดในการอัปเดตข้อมูล')
+        else fetchLeaveTypes(companyId)
+    }
+
+    const handleUpdateLeaveDays = async (id: number, newValue: number) => {
+        if (!companyId) return
+        const { error } = await supabase.from('leave_types').update({ max_paid_days: newValue }).eq('id', id)
+        if (error) alert('เกิดข้อผิดพลาดในการอัปเดตจำนวนวัน')
+        else fetchLeaveTypes(companyId)
     }
 
     if (isLoading) return <div className="p-4 text-slate-500 font-medium">กำลังโหลดข้อมูลการตั้งค่า...</div>
 
+    // ตรวจสอบแพ็กเกจ (อนุญาตเฉพาะ Trial หรือ Pro)
+    const isPro = ['trial', 'pro'].includes(companyPackage)
+
     return (
         <div className="pb-12">
-            {/* ปรับส่วนหัวให้มีปุ่มจัดการประเภทการลา */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-800 mb-1">ตั้งค่าองค์กร (Organization Settings)</h1>
                     <p className="text-slate-500 text-sm">กำหนดเวลาทำงาน ระบบกะ ประกันสังคม ปฏิทินวันหยุด และโครงสร้างองค์กร</p>
                 </div>
-                <Link 
-                    href="/settings/leave-types" 
-                    className="inline-flex items-center gap-2 bg-white border border-slate-200 shadow-sm text-slate-700 px-5 py-2.5 rounded-xl font-bold hover:border-indigo-300 hover:text-indigo-600 transition-all"
-                >
-                    <span className="text-lg">📝</span> จัดการประเภทการลา
-                </Link>
             </div>
 
-            {/* ปุ่มสลับแท็บ */}
-            <div className="flex border-b border-slate-200 mb-6 gap-2">
+            <div className="flex border-b border-slate-200 mb-6 gap-2 overflow-x-auto pb-1">
                 <button
                     onClick={() => setActiveTab('work_hours')}
-                    className={`pb-3 px-4 font-bold text-sm transition-all border-b-2 ${activeTab === 'work_hours'
-                        ? 'border-indigo-600 text-indigo-600'
-                        : 'border-transparent text-slate-400 hover:text-slate-600'
-                        }`}
+                    className={`pb-3 px-4 font-bold text-sm transition-all border-b-2 whitespace-nowrap ${activeTab === 'work_hours' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
                 >
-                    ⏰ เวลาทำงาน, OT & ประกันสังคม
+                    ⏰ รูปแบบการทำงาน & อนุมัติ
                 </button>
                 <button
                     onClick={() => setActiveTab('holidays')}
-                    className={`pb-3 px-4 font-bold text-sm transition-all border-b-2 ${activeTab === 'holidays'
-                        ? 'border-indigo-600 text-indigo-600'
-                        : 'border-transparent text-slate-400 hover:text-slate-600'
-                        }`}
+                    className={`pb-3 px-4 font-bold text-sm transition-all border-b-2 whitespace-nowrap ${activeTab === 'holidays' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
                 >
                     📅 ปฏิทินวันหยุดองค์กร
                 </button>
                 <button
                     onClick={() => setActiveTab('structure')}
-                    className={`pb-3 px-4 font-bold text-sm transition-all border-b-2 ${activeTab === 'structure'
-                        ? 'border-indigo-600 text-indigo-600'
-                        : 'border-transparent text-slate-400 hover:text-slate-600'
-                        }`}
+                    className={`pb-3 px-4 font-bold text-sm transition-all border-b-2 whitespace-nowrap ${activeTab === 'structure' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
                 >
-                    🏢 โครงสร้างองค์กร (แผนก/ตำแหน่ง)
+                    🏢 โครงสร้างองค์กร
+                </button>
+                <button
+                    onClick={() => setActiveTab('leave_types')}
+                    className={`pb-3 px-4 font-bold text-sm transition-all border-b-2 whitespace-nowrap ${activeTab === 'leave_types' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
+                >
+                    📝 จัดการประเภทการลา
                 </button>
             </div>
 
-            {/* TABS 1: เวลาทำงาน, OT & ประกันสังคม */}
+            {/* TABS 1: เวลาทำงาน, อนุมัติ, OT & ประกันสังคม */}
             {activeTab === 'work_hours' && (
                 <div className="space-y-6 animate-fade-in">
                     
-                    {/* กล่องตั้งค่าเข้างาน */}
+                    {/* 📋 กล่องตั้งค่าสายการอนุมัติ */}
+                    <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                        <h2 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
+                            📋 สายการอนุมัติการลาและ OT
+                        </h2>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <label className={`p-4 rounded-xl border-2 cursor-pointer transition-all flex items-start gap-3 ${approvalWorkflow === 'admin_only' ? 'border-indigo-600 bg-indigo-50/40' : 'border-slate-200 hover:bg-slate-50'}`}>
+                                <input type="radio" checked={approvalWorkflow === 'admin_only'} onChange={() => setApprovalWorkflow('admin_only')} className="mt-1 accent-indigo-600" />
+                                <div>
+                                    <div className="font-bold text-slate-800 text-sm">อนุมัติระดับเดียว (Admin Only)</div>
+                                    <div className="text-xs text-slate-500 mt-0.5">ส่งคำขอให้ผู้ดูแลระบบ (HR/Admin) เป็นผู้อนุมัติโดยตรง (ใช้ได้ทุกแพ็กเกจ)</div>
+                                </div>
+                            </label>
+
+                            <label className={`relative p-4 rounded-xl border-2 transition-all flex items-start gap-3 ${approvalWorkflow === 'manager_approval' ? 'border-indigo-600 bg-indigo-50/40' : 'border-slate-200'} ${!isPro ? 'opacity-60 bg-slate-50 cursor-not-allowed' : 'cursor-pointer hover:bg-slate-50'}`}>
+                                <input type="radio" checked={approvalWorkflow === 'manager_approval'} onChange={() => isPro && setApprovalWorkflow('manager_approval')} disabled={!isPro} className="mt-1 accent-indigo-600 disabled:opacity-50" />
+                                <div>
+                                    <div className="font-bold text-slate-800 text-sm flex items-center gap-2">
+                                        อนุมัติตามสายงาน (Manager Approval) 
+                                        {!isPro && <span className="bg-amber-500 text-white text-[10px] px-1.5 py-0.5 rounded">PRO</span>}
+                                    </div>
+                                    <div className="text-xs text-slate-500 mt-0.5">ส่งคำขอให้หัวหน้าแผนกตรวจสอบและอนุมัติผ่าน LINE ได้ทันที</div>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
                     <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
                         <h2 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
                             ⚙️ รูปแบบการเข้างานของบริษัท
@@ -263,8 +336,7 @@ export default function SettingsPage() {
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                             <label
-                                className={`p-4 rounded-xl border-2 cursor-pointer transition-all flex items-start gap-3 ${!hasShifts ? 'border-indigo-600 bg-indigo-50/40' : 'border-slate-200 hover:bg-slate-50'
-                                    }`}
+                                className={`p-4 rounded-xl border-2 cursor-pointer transition-all flex items-start gap-3 ${!hasShifts ? 'border-indigo-600 bg-indigo-50/40' : 'border-slate-200 hover:bg-slate-50'}`}
                             >
                                 <input
                                     type="radio"
@@ -280,18 +352,21 @@ export default function SettingsPage() {
                             </label>
 
                             <label
-                                className={`p-4 rounded-xl border-2 cursor-pointer transition-all flex items-start gap-3 ${hasShifts ? 'border-indigo-600 bg-indigo-50/40' : 'border-slate-200 hover:bg-slate-50'
-                                    }`}
+                                className={`relative p-4 rounded-xl border-2 transition-all flex items-start gap-3 ${hasShifts ? 'border-indigo-600 bg-indigo-50/40' : 'border-slate-200'} ${!isPro ? 'opacity-60 bg-slate-50 cursor-not-allowed' : 'cursor-pointer hover:bg-slate-50'}`}
                             >
                                 <input
                                     type="radio"
                                     name="shift_type"
                                     checked={hasShifts}
-                                    onChange={() => setHasShifts(true)}
-                                    className="mt-1 accent-indigo-600"
+                                    onChange={() => isPro && setHasShifts(true)}
+                                    disabled={!isPro}
+                                    className="mt-1 accent-indigo-600 disabled:opacity-50"
                                 />
                                 <div>
-                                    <div className="font-bold text-slate-800 text-sm">มีกะการทำงาน (Multi-Shift)</div>
+                                    <div className="font-bold text-slate-800 text-sm flex items-center gap-2">
+                                        มีกะการทำงาน (Multi-Shift) 
+                                        {!isPro && <span className="bg-amber-500 text-white text-[10px] px-1.5 py-0.5 rounded">PRO</span>}
+                                    </div>
                                     <div className="text-xs text-slate-500 mt-0.5">มีหลายกะเวลา เช่น กะเช้า, กะบ่าย, กะดึก เหมาะกับโรงงานหรือร้านค้า</div>
                                 </div>
                             </label>
@@ -434,7 +509,6 @@ export default function SettingsPage() {
                         )}
                     </div>
 
-                    {/* 💰 กล่องตั้งค่า OT */}
                     <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
                         <h2 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
                             💰 อัตราค่าล่วงเวลา (OT)
@@ -481,7 +555,6 @@ export default function SettingsPage() {
                         </div>
                     </div>
 
-                    {/* กล่องตั้งค่าประกันสังคม */}
                     <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
                         <div className="flex items-center justify-between mb-4">
                             <div>
@@ -561,7 +634,7 @@ export default function SettingsPage() {
                 </div>
             )}
             
-            {/* TABS 2: ปฏิทินวันหยุดองค์กร (อัปเดตเอาเรท OT ออก) */}
+            {/* TABS 2: ปฏิทินวันหยุดองค์กร */}
             {activeTab === 'holidays' && (
                 <div className="space-y-6 animate-fade-in">
                     <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
@@ -740,6 +813,88 @@ export default function SettingsPage() {
                                 </li>
                             ))}
                         </ul>
+                    </div>
+                </div>
+            )}
+
+            {/* TABS 4: จัดการประเภทการลา */}
+            {activeTab === 'leave_types' && (
+                <div className="space-y-6 animate-fade-in">
+                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                        <h2 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
+                            📝 กำหนดสิทธิ์และประเภทการลา
+                        </h2>
+                        <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse">
+                            <thead>
+                            <tr className="border-b border-slate-200 text-sm text-slate-500">
+                                <th className="pb-3 font-medium">ประเภทการลา</th>
+                                <th className="pb-3 font-medium text-center">สิทธิ์รับค่าจ้าง (วัน/ปี)</th>
+                                <th className="pb-3 font-medium text-center">รายเดือนได้เงิน?</th>
+                                <th className="pb-3 font-medium text-center">รายวันได้เงิน?</th>
+                                <th className="pb-3 font-medium text-center">ทดลองงานลาได้?</th>
+                            </tr>
+                            </thead>
+                            <tbody>
+                            {leaveTypes.map((item) => (
+                                <tr key={item.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
+                                <td className="py-4 font-bold text-slate-800">
+                                    {item.name}
+                                </td>
+                                <td className="py-4 text-center">
+                                    <div className="flex items-center justify-center gap-2">
+                                    <input 
+                                        type="number"
+                                        min="0"
+                                        defaultValue={item.max_paid_days}
+                                        onBlur={(e) => handleUpdateLeaveDays(item.id, Number(e.target.value))}
+                                        className="w-20 text-center p-1.5 border border-slate-300 rounded-lg text-sm font-bold text-indigo-600 bg-indigo-50 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                    />
+                                    <span className="text-xs text-slate-400 font-medium">(ใส่ 999 = ไม่จำกัด)</span>
+                                    </div>
+                                </td>
+                                <td className="py-4 text-center">
+                                    <button 
+                                    onClick={() => toggleLeaveSetting(item.id, 'is_paid_for_monthly', item.is_paid_for_monthly)}
+                                    className={`px-3 py-1 rounded-full text-xs font-bold transition-colors ${
+                                        item.is_paid_for_monthly ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                                    }`}
+                                    >
+                                    {item.is_paid_for_monthly ? '✅ ได้เงิน' : '❌ ไม่ได้เงิน'}
+                                    </button>
+                                </td>
+                                <td className="py-4 text-center">
+                                    <button 
+                                    onClick={() => toggleLeaveSetting(item.id, 'is_paid_for_daily', item.is_paid_for_daily)}
+                                    className={`px-3 py-1 rounded-full text-xs font-bold transition-colors ${
+                                        item.is_paid_for_daily ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                                    }`}
+                                    >
+                                    {item.is_paid_for_daily ? '✅ ได้เงิน' : '❌ ไม่ได้เงิน'}
+                                    </button>
+                                </td>
+                                <td className="py-4 text-center">
+                                    <button 
+                                    onClick={() => toggleLeaveSetting(item.id, 'allow_probation', item.allow_probation)}
+                                    className={`px-3 py-1 rounded-full text-xs font-bold transition-colors ${
+                                        item.allow_probation ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-rose-100 text-rose-700 hover:bg-rose-200'
+                                    }`}
+                                    >
+                                    {item.allow_probation ? '✅ ลาได้' : '❌ ลาไม่ได้'}
+                                    </button>
+                                </td>
+                                </tr>
+                            ))}
+                            {leaveTypes.length === 0 && (
+                                <tr>
+                                    <td colSpan={5} className="py-6 text-center text-slate-400 text-sm">ยังไม่มีข้อมูลประเภทการลา</td>
+                                </tr>
+                            )}
+                            </tbody>
+                        </table>
+                        </div>
+                        <p className="text-xs text-slate-400 mt-4">* ตัวเลขสิทธิ์รับค่าจ้างจะบันทึกอัตโนมัติเมื่อพิมพ์เสร็จและคลิกพื้นที่อื่น</p>
+                        <p className="text-xs text-slate-400 mt-1">* กดที่ปุ่มสถานะเพื่อสลับการตั้งค่าเงื่อนไขการลาทันที</p>
                     </div>
                 </div>
             )}
