@@ -178,29 +178,30 @@ export default function LiffAttendancePage() {
     let imageUrl = null
 
     try {
-      // 2. ตรวจสอบพิกัด GPS (ถ้าตั้งค่าไว้)
+      // 1. ดึงพิกัด GPS ของมือถือพนักงานเสมอ (บังคับดึงทุกครั้งที่กดเข้า-ออกงาน)
+      try {
+        const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 10000 })
+        })
+        currentLat = position.coords.latitude
+        currentLng = position.coords.longitude
+      } catch (gpsError) {
+        alert('📍 ไม่สามารถระบุพิกัดได้ กรุณาเปิด GPS และอนุญาตให้ LINE เข้าถึงตำแหน่งก่อนทำรายการ')
+        setSubmitting(false)
+        return
+      }
+
+      // 2. ถ้าบริษัทมีการตั้งค่าพิกัดออฟฟิศไว้ ค่อยนำมาคำนวณว่าเกินรัศมีหรือไม่
       if (companySettings.location_lat && companySettings.location_lng) {
-        try {
-          const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-            navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 10000 })
-          })
-          currentLat = position.coords.latitude
-          currentLng = position.coords.longitude
-          
-          const distance = calculateDistance(
-            companySettings.location_lat, 
-            companySettings.location_lng, 
-            currentLat, 
-            currentLng
-          )
-          
-          if (distance > (companySettings.location_radius || 100)) {
-            alert(`📍 คุณอยู่นอกพื้นที่ทำงาน\n(ห่าง ${Math.round(distance)} เมตร / อนุญาตให้ห่างได้ไม่เกิน ${companySettings.location_radius} เมตร)`)
-            setSubmitting(false)
-            return
-          }
-        } catch (gpsError) {
-          alert('📍 ไม่สามารถระบุพิกัดของคุณได้ กรุณาเปิด GPS และอนุญาตให้ LINE เข้าถึงตำแหน่ง')
+        const distance = calculateDistance(
+          companySettings.location_lat, 
+          companySettings.location_lng, 
+          currentLat, 
+          currentLng
+        )
+        
+        if (distance > (companySettings.location_radius || 100)) {
+          alert(`📍 คุณอยู่นอกพื้นที่ทำงาน\n(ห่าง ${Math.round(distance)} เมตร / อนุญาตให้ห่างได้ไม่เกิน ${companySettings.location_radius} เมตร)`)
           setSubmitting(false)
           return
         }
