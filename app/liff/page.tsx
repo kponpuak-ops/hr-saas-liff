@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
 import liff from '@line/liff'
-import Link from 'next/link' // เพิ่มการใช้งาน Link
+import Link from 'next/link'
 
 export default function LiffAttendancePage() {
   const [loading, setLoading] = useState(true)
@@ -19,6 +19,9 @@ export default function LiffAttendancePage() {
   const [activeRecord, setActiveRecord] = useState<any>(null)
   const [isCompletedToday, setIsCompletedToday] = useState(false)
 
+  // สเตทสำหรับเก็บจำนวนรายการที่รออนุมัติ
+  const [pendingApprovalsCount, setPendingApprovalsCount] = useState<number>(0)
+
   useEffect(() => {
     initLiffData()
   }, [])
@@ -26,17 +29,14 @@ export default function LiffAttendancePage() {
   const initLiffData = async () => {
     setLoading(true)
     try {
-      // 1. เริ่มทำงาน LIFF และเช็กการล็อกอิน LINE
       await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID || '' })
       if (!liff.isLoggedIn()) {
         liff.login()
         return
       }
 
-      // 2. ดึง LINE Profile ของผู้ใช้งานปัจจุบัน
       const profile = await liff.getProfile()
 
-      // 3. ดึงการตั้งค่าบริษัท
       const { data: settings } = await supabase
         .from('company_settings')
         .select('has_shifts')
@@ -46,7 +46,6 @@ export default function LiffAttendancePage() {
       const isShiftEnabled = settings?.has_shifts ?? false
       setHasShifts(isShiftEnabled)
 
-      // 4. ถ้าเปิดระบบกะ ให้ดึงรายการกะทั้งหมดมาเตรียมไว้
       if (isShiftEnabled) {
         const { data: shiftData } = await supabase
           .from('work_shifts')
@@ -59,14 +58,12 @@ export default function LiffAttendancePage() {
         }
       }
 
-      // 5. ค้นหาข้อมูลพนักงานในตาราง users ผ่าน line_user_id จริง
       const { data: userData } = await supabase
         .from('users')
         .select('*')
         .eq('line_user_id', profile.userId)
         .maybeSingle()
 
-      // 🛑 ถ้าไม่พบข้อมูลพนักงาน (ยังไม่ได้ผูก LINE) -> ส่งไปหน้า /bind ทันที
       if (!userData) {
         window.location.href = '/bind'
         return
@@ -74,6 +71,12 @@ export default function LiffAttendancePage() {
 
       setUser(userData)
       await checkAttendanceStatus(userData.id, isShiftEnabled)
+      
+      // ดึงตัวเลขแจ้งเตือนสำหรับ Manager หรือ Admin
+      if (userData.role === 'manager' || userData.role === 'admin') {
+         await fetchPendingCount(userData.company_id, userData.department, userData.role)
+      }
+
     } catch (err: any) {
       console.error('Error loading LIFF:', err.message)
     } finally {
@@ -81,10 +84,22 @@ export default function LiffAttendancePage() {
     }
   }
 
-  // ตรวจสอบสถานะการลงเวลาปัจจุบัน
+  const fetchPendingCount = async (companyId: number, department: string, role: string) => {
+    let leaveQuery = supabase.from('leaves').select('id, users!inner(company_id, department, role)', { count: 'exact' }).eq('status', 'pending').eq('users.company_id', companyId)
+    let otQuery = supabase.from('ot_requests').select('id, users!inner(company_id, department, role)', { count: 'exact' }).eq('status', 'pending').eq('users.company_id', companyId)
+
+    if (role === 'manager') {
+      leaveQuery = leaveQuery.eq('users.department', department).eq('users.role', 'staff')
+      otQuery = otQuery.eq('users.department', department).eq('users.role', 'staff')
+    }
+
+    const [leaveRes, otRes] = await Promise.all([leaveQuery, otQuery])
+    const totalCount = (leaveRes.count || 0) + (otRes.count || 0)
+    setPendingApprovalsCount(totalCount)
+  }
+
   const checkAttendanceStatus = async (userId: string, isShiftEnabled: boolean) => {
     if (!isShiftEnabled) {
-      // --- เคสไม่มีกะ: เช็กเรคคอร์ดของวันนี้ ---
       const today = new Date().toISOString().split('T')[0]
       const { data: todayRecord } = await supabase
         .from('attendance')
@@ -106,7 +121,6 @@ export default function LiffAttendancePage() {
         setIsCompletedToday(false)
       }
     } else {
-      // --- เคสมีกะ: เช็ก Active Session ล่าสุดที่ยังไม่กดออก ---
       const { data: lastRecord } = await supabase
         .from('attendance')
         .select('*, work_shifts(*)')
@@ -124,7 +138,6 @@ export default function LiffAttendancePage() {
     }
   }
 
-  // กดปุ่มลงเวลาเข้างาน
   const handleCheckIn = async () => {
     if (!user) return
     setSubmitting(true)
@@ -155,7 +168,6 @@ export default function LiffAttendancePage() {
     }
   }
 
-  // กดปุ่มลงเวลาออกงาน
   const handleCheckOut = async () => {
     if (!user) return
     setSubmitting(true)
@@ -195,9 +207,14 @@ export default function LiffAttendancePage() {
 
   return (
     <div className="min-h-screen bg-slate-50 p-4 max-w-md mx-auto flex flex-col justify-between pb-8">
-      {/* ส่วนหัวแสดงโปรไฟล์พนักงาน */}
       <div>
-        <div className="bg-indigo-600 text-white rounded-3xl p-6 shadow-lg mb-6">
+        <div className="bg-indigo-600 text-white rounded-3xl p-6 shadow-lg mb-6 relative">
+          {/* ป้ายแสดง Role ว่าเป็น Manager หรือ Admin */}
+          {(user?.role === 'manager' || user?.role === 'admin') && (
+            <div className="absolute top-4 right-4 bg-white/20 px-2 py-1 rounded-md text-[10px] font-bold tracking-wider uppercase">
+              {user.role}
+            </div>
+          )}
           <div className="flex items-center gap-4">
             <div className="w-14 h-14 rounded-full bg-white/20 flex items-center justify-center font-bold text-xl overflow-hidden border-2 border-white/40">
               {user?.avatar_url ? (
@@ -213,7 +230,6 @@ export default function LiffAttendancePage() {
           </div>
         </div>
 
-        {/* บัตรแสดงสถานะการลงเวลา */}
         <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-4">
           <div className="flex justify-between items-center border-b pb-3">
             <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">โหมดลงเวลา</span>
@@ -224,7 +240,6 @@ export default function LiffAttendancePage() {
             </span>
           </div>
 
-          {/* กรณี 1: กำลังทำงานอยู่ (Check-in ค้างไว้) */}
           {activeRecord ? (
             <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-center space-y-1">
               <span className="text-xs text-emerald-600 font-bold">🟢 สถานะ: กำลังปฏิบัติงาน</span>
@@ -238,18 +253,15 @@ export default function LiffAttendancePage() {
               </p>
             </div>
           ) : isCompletedToday ? (
-            /* กรณี 2: แบบไม่มีกะ และกดลงเวลาครบแล้วสำหรับวันนี้ */
             <div className="bg-slate-100 border border-slate-200 rounded-xl p-4 text-center">
               <span className="text-xs text-slate-500 font-bold">✅ ลงเวลาเข้า-ออกงาน ครบถ้วนแล้ววันนี้</span>
             </div>
           ) : (
-            /* กรณี 3: ยังไม่ได้กดเข้างาน */
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-center">
               <span className="text-xs text-amber-700 font-bold">⏰ ยังไม่ได้ลงเวลาเข้างาน</span>
             </div>
           )}
 
-          {/* ถ้ามีกะ และยังไม่ได้กดเข้างาน -> โชว์ตัวเลือกกะ */}
           {hasShifts && !activeRecord && (
             <div className="pt-2">
               <label className="block text-xs font-bold text-slate-700 mb-1.5">เลือกกะการทำงานที่จะเข้า:</label>
@@ -268,7 +280,7 @@ export default function LiffAttendancePage() {
           )}
         </div>
 
-        {/* เมนูลัด (Quick Actions) */}
+        {/* ปุ่มลัด (Quick Actions) */}
         <div className="mt-4 grid grid-cols-2 gap-3">
           <Link className="p-4 bg-white border border-slate-200 rounded-2xl text-slate-700 font-bold text-sm shadow-sm hover:bg-slate-50 flex flex-col items-center gap-2 transition-colors" href="/liff/leave">
             <span className="text-2xl">📝</span>
@@ -287,9 +299,31 @@ export default function LiffAttendancePage() {
             <span className="text-xs text-center">ประวัติ OT</span>
           </Link>
         </div>
+        
+        {/* กล่องเมนูพิเศษ: แสดงเฉพาะ Manager และ Admin */}
+        {(user?.role === 'manager' || user?.role === 'admin') && (
+           <div className="mt-3">
+             <Link href="/liff/approvals" className="w-full bg-slate-800 text-white rounded-2xl p-4 flex items-center justify-between hover:bg-slate-700 transition shadow-sm">
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl">📥</span>
+                  <div className="flex flex-col">
+                    <span className="font-bold text-sm">ตรวจสอบคำขอ (รออนุมัติ)</span>
+                    <span className="text-[10px] text-slate-300">จัดการใบลาและโอทีของลูกทีม</span>
+                  </div>
+                </div>
+                {pendingApprovalsCount > 0 ? (
+                  <span className="bg-rose-500 text-white text-xs font-bold px-2.5 py-1 rounded-full animate-pulse shadow-md">
+                    {pendingApprovalsCount} รายการ
+                  </span>
+                ) : (
+                  <span className="text-slate-400 text-xl">›</span>
+                )}
+             </Link>
+           </div>
+        )}
+
       </div>
 
-      {/* ปุ่มกด Action หลัก */}
       <div className="mt-8">
         {activeRecord ? (
           <button
