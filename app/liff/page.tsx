@@ -191,8 +191,8 @@ export default function LiffAttendancePage() {
         return
       }
 
-      // 2. ถ้าบริษัทมีการตั้งค่าพิกัดออฟฟิศไว้ ค่อยนำมาคำนวณว่าเกินรัศมีหรือไม่
-      if (companySettings.location_lat && companySettings.location_lng) {
+      // 2. เช็กพิกัดออฟฟิศ (ยกเว้นพนักงานที่ได้สิทธิ์ลงเวลานอกสถานที่)
+      if (companySettings.location_lat && companySettings.location_lng && !user.allow_remote_attendance) {
         const distance = calculateDistance(
           companySettings.location_lat, 
           companySettings.location_lng, 

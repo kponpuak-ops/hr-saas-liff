@@ -36,7 +36,7 @@ export default function EmployeesPage() {
   const [positions, setPositions] = useState<any[]>([])
   const [benefitOptions, setBenefitOptions] = useState<any[]>([])
 
-  // Form State Initial Value (เพิ่ม email, payment_method, bank_account)
+  // Form State Initial Value (เพิ่ม email, payment_method, bank_account, allow_remote_attendance)
   const initialFormState = {
     employee_id: '',
     first_name: '',
@@ -55,6 +55,7 @@ export default function EmployeesPage() {
     department: '',
     position: '',
     start_date: new Date().toISOString().split('T')[0],
+    allow_remote_attendance: false,
   }
 
   const [formData, setFormData] = useState(initialFormState)
@@ -237,6 +238,7 @@ export default function EmployeesPage() {
       department: emp.department || (departments[0]?.name || ''),
       position: emp.position || (positions[0]?.title || ''),
       start_date: emp.start_date || new Date().toISOString().split('T')[0],
+      allow_remote_attendance: emp.allow_remote_attendance || false,
     })
     setEmployeeBenefits(emp.benefits || [])
     setShowAddForm(true)
@@ -306,6 +308,18 @@ export default function EmployeesPage() {
       alert('ลบข้อมูลพนักงานเรียบร้อยแล้ว')
       fetchEmployees()
     }
+  }
+
+  // อัปเดตสิทธิ์ลงเวลานอกสถานที่โดยตรงจากตาราง
+  const toggleRemoteAttendance = async (id: string, currentValue: boolean) => {
+    const { error } = await supabase.from('users').update({ allow_remote_attendance: !currentValue }).eq('id', id)
+    if (!error) fetchEmployees()
+  }
+
+  // อัปเดต Role โดยตรงจากตาราง
+  const updateRole = async (id: string, newRole: string) => {
+    const { error } = await supabase.from('users').update({ role: newRole }).eq('id', id)
+    if (!error) fetchEmployees()
   }
 
   // Filter Logic
@@ -701,9 +715,8 @@ export default function EmployeesPage() {
                 <th className="pb-3 min-w-[200px]">พนักงาน</th>
                 <th className="pb-3 min-w-[150px]">แผนก / ตำแหน่ง</th>
                 <th className="pb-3 text-center">ประเภทการจ้างงาน</th>
-                <th className="pb-3 text-right">ฐานเงินเดือน / ค่าจ้าง</th>
-                <th className="pb-3 min-w-[150px]">สวัสดิการ</th>
-                {/* ปรับให้จัดกึ่งกลางและล็อกความกว้าง */}
+                <th className="pb-3 text-center">สิทธิ์การใช้งาน (Role)</th>
+                <th className="pb-3 text-center">ลงเวลานอกสถานที่</th>
                 <th className="pb-3 text-center w-28">สถานะ LINE</th>
                 <th className="pb-3 text-center w-56">จัดการ</th>
               </tr>
@@ -737,7 +750,7 @@ export default function EmployeesPage() {
                         </button>
                         <div>
                           <div className="font-bold text-slate-800">{emp.first_name} {emp.last_name}</div>
-                          <div className="text-xs text-slate-400">ID: {emp.employee_id || '-'} • สิทธิ์: {emp.role}</div>
+                          <div className="text-xs text-slate-400">ID: {emp.employee_id || '-'}</div>
                         </div>
                       </div>
                     </td>
@@ -746,80 +759,62 @@ export default function EmployeesPage() {
                       <div className="text-xs text-slate-400">{emp.department || '-'}</div>
                     </td>
                     <td className="py-4 text-center">
-                      {emp.employment_type === 'full_time' && (
-                        <span className="px-2.5 py-1 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-md text-xs font-bold">
-                          👔 ประจำ (รายเดือน)
-                        </span>
-                      )}
-                      {emp.employment_type === 'probation' && (
-                        <span className="px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-md text-xs font-bold">
-                          ⏳ ทดลองงาน
-                        </span>
-                      )}
-                      {emp.employment_type === 'daily' && (
-                        <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md text-xs font-bold">
-                          📅 รายวัน
-                        </span>
-                      )}
-                      {emp.employment_type === 'contract' && (
-                        <span className="px-2.5 py-1 bg-purple-50 text-purple-700 border border-purple-200 rounded-md text-xs font-bold">
-                          📝 สัญญาจ้าง
-                        </span>
-                      )}
+                      {emp.employment_type === 'full_time' && <span className="px-2.5 py-1 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-md text-xs font-bold">👔 ประจำ</span>}
+                      {emp.employment_type === 'probation' && <span className="px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-md text-xs font-bold">⏳ ทดลองงาน</span>}
+                      {emp.employment_type === 'daily' && <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md text-xs font-bold">📅 รายวัน</span>}
+                      {emp.employment_type === 'contract' && <span className="px-2.5 py-1 bg-purple-50 text-purple-700 border border-purple-200 rounded-md text-xs font-bold">📝 สัญญาจ้าง</span>}
                     </td>
-                    <td className="py-4 text-right font-extrabold text-slate-800">
-                      {emp.employment_type === 'daily' ? (
-                        <span className="text-emerald-700">฿{Number(emp.daily_rate || 0).toLocaleString()} /วัน</span>
-                      ) : (
-                        <span className="text-indigo-700">฿{Number(emp.base_salary || 0).toLocaleString()} /เดือน</span>
-                      )}
+                    <td className="py-4 text-center">
+                      <select 
+                        value={emp.role || 'staff'} 
+                        onChange={(e) => updateRole(emp.id, e.target.value)}
+                        className={`p-1.5 border rounded-lg text-xs font-bold outline-none cursor-pointer ${
+                          emp.role === 'admin' ? 'bg-rose-50 border-rose-200 text-rose-700' : 
+                          emp.role === 'manager' ? 'bg-amber-50 border-amber-200 text-amber-700' : 
+                          'bg-slate-50 border-slate-300 text-slate-700'
+                        }`}
+                      >
+                        <option value="staff">Staff</option>
+                        <option value="manager">Manager</option>
+                        <option value="admin">Admin</option>
+                      </select>
                     </td>
-                    <td className="py-4">
-                      {emp.benefits && emp.benefits.length > 0 ? (
-                        <div className="flex flex-wrap gap-1">
-                          {emp.benefits.map((b: any, idx: number) => (
-                            <span key={idx} className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-xs font-medium">
-                              {b.name}: +฿{b.amount}
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="text-xs text-slate-400">-</span>
-                      )}
+                    <td className="py-4 text-center">
+                      <button 
+                        onClick={() => toggleRemoteAttendance(emp.id, emp.allow_remote_attendance)}
+                        className={`px-2.5 py-1 rounded-full text-xs font-bold transition-colors ${
+                          emp.allow_remote_attendance ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                        }`}
+                        title="คลิกเพื่อสลับสิทธิ์การลงเวลานอกพื้นที่"
+                      >
+                        {emp.allow_remote_attendance ? '✅ อนุญาต' : '❌ ไม่อนุญาต'}
+                      </button>
                     </td>
-                    {/* ปรับให้จัดกึ่งกลาง */}
                     <td className="py-4 text-center">
                       {emp.line_user_id ? (
-                        <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700">
-                          ✅ ผูกแล้ว
-                        </span>
+                        <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700">✅ ผูกแล้ว</span>
                       ) : (
-                        <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-700">
-                          รอผูก LINE
-                        </span>
+                        <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-700">รอผูก LINE</span>
                       )}
                     </td>
                     <td className="py-4">
-                      {/* เปลี่ยนจาก justify-end เป็น justify-center */}
                       <div className="flex justify-center gap-1.5">
                         <button
                           onClick={() => handleViewProfile(emp)}
                           className="px-2.5 py-1.5 bg-slate-100 text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 border border-slate-200 rounded-lg text-xs font-bold transition-colors"
                           title="ดูโปรไฟล์และสิทธิ์การลา"
                         >
-                          🔍 โปรไฟล์ & วันลา
+                          🔍 โปรไฟล์
                         </button>
                         <button
                           onClick={() => handleEditClick(emp)}
                           className="px-2.5 py-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg text-xs font-bold transition-colors"
-                          title="แก้ไขข้อมูลพนักงาน"
                         >
                           ✏️ แก้ไข
                         </button>
                         <button
                           onClick={() => handleDeleteEmployee(emp.id, `${emp.first_name} ${emp.last_name}`)}
                           className="px-2.5 py-1.5 text-rose-600 hover:bg-rose-50 rounded-lg text-xs font-bold transition-colors"
-                          title="ลบพนักงานคนนี้"
                         >
                           🗑️ ลบ
                         </button>
