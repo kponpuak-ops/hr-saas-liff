@@ -19,7 +19,7 @@ export default function SettingsPage() {
     const [newPos, setNewPos] = useState('')
     const [newBenefit, setNewBenefit] = useState('')
 
-    // --- 2. Work Hours, Shift & Workflow State ---
+    // --- 2. Work Hours, Shift, Workflow & GPS State ---
     const [approvalWorkflow, setApprovalWorkflow] = useState<'admin_only' | 'manager_approval'>('admin_only')
     const [hasShifts, setHasShifts] = useState<boolean>(false)
     const [defaultStartTime, setDefaultStartTime] = useState('08:30')
@@ -27,6 +27,12 @@ export default function SettingsPage() {
     const [lateBufferMinutes, setLateBufferMinutes] = useState(15)
     const [lateDeduction, setLateDeduction] = useState(0)
     const [shifts, setShifts] = useState<any[]>([])
+
+    // GPS & Selfie State (เพิ่มใหม่)
+    const [locationLat, setLocationLat] = useState<string>('')
+    const [locationLng, setLocationLng] = useState<string>('')
+    const [locationRadius, setLocationRadius] = useState<number>(100)
+    const [requirePhoto, setRequirePhoto] = useState<boolean>(false)
     
     const [otRateNormal, setOtRateNormal] = useState<number>(1.5)
     const [otRateHolidayWork, setOtRateHolidayWork] = useState<number>(2.0)
@@ -124,6 +130,13 @@ export default function SettingsPage() {
             setDefaultEndTime(data.default_end_time?.substring(0, 5) || '17:30')
             setLateBufferMinutes(data.late_buffer_minutes || 0)
             setLateDeduction(data.late_deduction_per_minute || 0)
+            
+            // GPS & Photo states
+            setLocationLat(data.location_lat?.toString() || '')
+            setLocationLng(data.location_lng?.toString() || '')
+            setLocationRadius(data.location_radius || 100)
+            setRequirePhoto(data.require_photo || false)
+
             setOtRateNormal(data.ot_rate_normal ?? 1.5)
             setOtRateHolidayWork(data.ot_rate_holiday_work ?? 2.0)
             setOtRateHolidayOt(data.ot_rate_holiday_ot ?? 3.0)
@@ -163,6 +176,13 @@ export default function SettingsPage() {
             default_end_time: defaultEndTime,
             late_buffer_minutes: lateBufferMinutes,
             late_deduction_per_minute: lateDeduction,
+            
+            // บันทึกค่า GPS & Photo
+            location_lat: locationLat ? parseFloat(locationLat) : null,
+            location_lng: locationLng ? parseFloat(locationLng) : null,
+            location_radius: locationRadius,
+            require_photo: requirePhoto,
+
             ot_rate_normal: otRateNormal,
             ot_rate_holiday_work: otRateHolidayWork,
             ot_rate_holiday_ot: otRateHolidayOt,
@@ -507,6 +527,63 @@ export default function SettingsPage() {
                                 </div>
                             </div>
                         )}
+                    </div>
+
+                    {/* 📍 กล่องตั้งค่าความปลอดภัย GPS & Selfie */}
+                    <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                        <h2 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
+                            📍 ความปลอดภัยในการลงเวลา (GPS & Selfie)
+                        </h2>
+                        <div className="space-y-6">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">ละติจูด (Latitude)</label>
+                                    <input 
+                                        type="number" 
+                                        step="any"
+                                        placeholder="เช่น 13.7563"
+                                        value={locationLat}
+                                        onChange={(e) => setLocationLat(e.target.value)}
+                                        className="w-full p-3 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">ลองจิจูด (Longitude)</label>
+                                    <input 
+                                        type="number" 
+                                        step="any"
+                                        placeholder="เช่น 100.5018"
+                                        value={locationLng}
+                                        onChange={(e) => setLocationLng(e.target.value)}
+                                        className="w-full p-3 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                                    />
+                                </div>
+                            </div>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">รัศมีที่อนุญาตให้ลงเวลา (เมตร)</label>
+                                    <input 
+                                        type="number" 
+                                        value={locationRadius}
+                                        onChange={(e) => setLocationRadius(parseInt(e.target.value) || 0)}
+                                        className="w-full p-3 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">การยืนยันตัวตน</label>
+                                    <div className="flex items-center gap-3 mt-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                                        <input 
+                                            type="checkbox" 
+                                            checked={requirePhoto}
+                                            onChange={(e) => setRequirePhoto(e.target.checked)}
+                                            className="w-5 h-5 accent-indigo-600 cursor-pointer" 
+                                        />
+                                        <span className="text-sm font-bold text-slate-700">📸 บังคับถ่ายรูปเซลฟี่ก่อนลงเวลา</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">

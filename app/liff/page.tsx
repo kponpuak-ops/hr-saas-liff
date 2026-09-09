@@ -11,16 +11,18 @@ export default function LiffAttendancePage() {
   const [user, setUser] = useState<any>(null)
   
   // Settings & Shift state
-  const [hasShifts, setHasShifts] = useState<boolean>(false)
+  const [companySettings, setCompanySettings] = useState<any>(null)
   const [shifts, setShifts] = useState<any[]>([])
   const [selectedShiftId, setSelectedShiftId] = useState<number | null>(null)
 
   // Attendance status state
   const [activeRecord, setActiveRecord] = useState<any>(null)
   const [isCompletedToday, setIsCompletedToday] = useState(false)
-
-  // สเตทสำหรับเก็บจำนวนรายการที่รออนุมัติ
   const [pendingApprovalsCount, setPendingApprovalsCount] = useState<number>(0)
+
+  // Photo state
+  const [photoFile, setPhotoFile] = useState<File | null>(null)
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null)
 
   useEffect(() => {
     initLiffData()
@@ -37,27 +39,7 @@ export default function LiffAttendancePage() {
 
       const profile = await liff.getProfile()
 
-      const { data: settings } = await supabase
-        .from('company_settings')
-        .select('has_shifts')
-        .eq('id', 1)
-        .single()
-
-      const isShiftEnabled = settings?.has_shifts ?? false
-      setHasShifts(isShiftEnabled)
-
-      if (isShiftEnabled) {
-        const { data: shiftData } = await supabase
-          .from('work_shifts')
-          .select('*')
-          .order('id', { ascending: true })
-
-        if (shiftData && shiftData.length > 0) {
-          setShifts(shiftData)
-          setSelectedShiftId(shiftData[0].id)
-        }
-      }
-
+      // 1. ดึงข้อมูลพนักงานก่อน เพื่อเอา company_id
       const { data: userData } = await supabase
         .from('users')
         .select('*')
@@ -68,11 +50,33 @@ export default function LiffAttendancePage() {
         window.location.href = '/bind'
         return
       }
-
       setUser(userData)
-      await checkAttendanceStatus(userData.id, isShiftEnabled)
+
+      // 2. ดึงการตั้งค่าบริษัทตาม company_id
+      const { data: settings } = await supabase
+        .from('company_settings')
+        .select('*')
+        .eq('company_id', userData.company_id)
+        .single()
       
-      // ดึงตัวเลขแจ้งเตือนสำหรับ Manager หรือ Admin
+      setCompanySettings(settings || {})
+
+      // 3. ดึงข้อมูลกะ (ถ้าเปิดใช้งาน)
+      if (settings?.has_shifts) {
+        const { data: shiftData } = await supabase
+          .from('work_shifts')
+          .select('*')
+          .eq('company_id', userData.company_id)
+          .order('id', { ascending: true })
+
+        if (shiftData && shiftData.length > 0) {
+          setShifts(shiftData)
+          setSelectedShiftId(shiftData[0].id)
+        }
+      }
+
+      await checkAttendanceStatus(userData.id, settings?.has_shifts)
+      
       if (userData.role === 'manager' || userData.role === 'admin') {
          await fetchPendingCount(userData.company_id, userData.department, userData.role)
       }
@@ -94,8 +98,7 @@ export default function LiffAttendancePage() {
     }
 
     const [leaveRes, otRes] = await Promise.all([leaveQuery, otQuery])
-    const totalCount = (leaveRes.count || 0) + (otRes.count || 0)
-    setPendingApprovalsCount(totalCount)
+    setPendingApprovalsCount((leaveRes.count || 0) + (otRes.count || 0))
   }
 
   const checkAttendanceStatus = async (userId: string, isShiftEnabled: boolean) => {
@@ -138,58 +141,130 @@ export default function LiffAttendancePage() {
     }
   }
 
-  const handleCheckIn = async () => {
-    if (!user) return
-    setSubmitting(true)
-    try {
-      const now = new Date()
-      const todayDate = now.toISOString().split('T')[0]
+  // --- ฟังก์ชันคำนวณระยะทางพิกัด (Haversine Formula) ---
+  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+    const R = 6371e3 // รัศมีโลก (เมตร)
+    const p1 = lat1 * Math.PI/180
+    const p2 = lat2 * Math.PI/180
+    const dp = (lat2-lat1) * Math.PI/180
+    const dl = (lon2-lon1) * Math.PI/180
+    const a = Math.sin(dp/2) * Math.sin(dp/2) + Math.cos(p1) * Math.cos(p2) * Math.sin(dl/2) * Math.sin(dl/2)
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
+    return R * c // คืนค่าเป็นเมตร
+  }
 
-      const payload: any = {
-        user_id: user.id,
-        action_date: todayDate,
-        check_in_time: now.toISOString(),
-      }
-
-      if (hasShifts && selectedShiftId) {
-        payload.shift_id = selectedShiftId
-      }
-
-      const { error } = await supabase.from('attendance').insert([payload])
-
-      if (error) throw error
-
-      alert('🟢 ลงเวลาเข้างานเรียบร้อยแล้ว!')
-      await checkAttendanceStatus(user.id, hasShifts)
-    } catch (err: any) {
-      alert('เกิดข้อผิดพลาด: ' + err.message)
-    } finally {
-      setSubmitting(false)
+  // --- ฟังก์ชันจัดการอัปโหลดภาพ ---
+  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      setPhotoFile(file)
+      setPhotoPreview(URL.createObjectURL(file))
     }
   }
 
-  const handleCheckOut = async () => {
-    if (!user) return
+  // --- ฟังก์ชันหลักสำหรับลงเวลา เข้า/ออก ---
+  const handleAttendance = async (type: 'in' | 'out') => {
+    if (!user || !companySettings) return
+
+    // 1. ตรวจสอบเงื่อนไขรูปถ่าย
+    if (companySettings.require_photo && !photoFile) {
+      alert('📸 กรุณาถ่ายรูปเซลฟี่เพื่อยืนยันตัวตนก่อนลงเวลา')
+      return
+    }
+
     setSubmitting(true)
+    let currentLat = null
+    let currentLng = null
+    let imageUrl = null
+
     try {
-      const now = new Date()
-
-      let query = supabase
-        .from('attendance')
-        .update({ check_out_time: now.toISOString() })
-
-      if (activeRecord?.id) {
-        query = query.eq('id', activeRecord.id)
-      } else {
-        query = query.eq('user_id', user.id).is('check_out_time', null)
+      // 2. ตรวจสอบพิกัด GPS (ถ้าตั้งค่าไว้)
+      if (companySettings.location_lat && companySettings.location_lng) {
+        try {
+          const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 10000 })
+          })
+          currentLat = position.coords.latitude
+          currentLng = position.coords.longitude
+          
+          const distance = calculateDistance(
+            companySettings.location_lat, 
+            companySettings.location_lng, 
+            currentLat, 
+            currentLng
+          )
+          
+          if (distance > (companySettings.location_radius || 100)) {
+            alert(`📍 คุณอยู่นอกพื้นที่ทำงาน\n(ห่าง ${Math.round(distance)} เมตร / อนุญาตให้ห่างได้ไม่เกิน ${companySettings.location_radius} เมตร)`)
+            setSubmitting(false)
+            return
+          }
+        } catch (gpsError) {
+          alert('📍 ไม่สามารถระบุพิกัดของคุณได้ กรุณาเปิด GPS และอนุญาตให้ LINE เข้าถึงตำแหน่ง')
+          setSubmitting(false)
+          return
+        }
       }
 
-      const { error } = await query
+      // 3. อัปโหลดรูปภาพ (ถ้ามี)
+      if (photoFile) {
+        const fileExt = photoFile.name.split('.').pop()
+        const fileName = `${user.id}_${Date.now()}_${type}.${fileExt}`
+        const { error: uploadErr } = await supabase.storage.from('attendance').upload(fileName, photoFile)
+        
+        if (uploadErr) {
+          alert('เกิดข้อผิดพลาดในการอัปโหลดรูปภาพ: ' + uploadErr.message)
+          setSubmitting(false)
+          return
+        }
+        
+        const { data: publicUrlData } = supabase.storage.from('attendance').getPublicUrl(fileName)
+        imageUrl = publicUrlData.publicUrl
+      }
 
-      if (error) throw error
+      // 4. บันทึกลงฐานข้อมูล
+      const now = new Date()
+      
+      if (type === 'in') {
+        const todayDate = now.toISOString().split('T')[0]
+        const payload: any = {
+          user_id: user.id,
+          action_date: todayDate,
+          check_in_time: now.toISOString(),
+          check_in_lat: currentLat,
+          check_in_lng: currentLng,
+          check_in_image: imageUrl
+        }
+        if (companySettings.has_shifts && selectedShiftId) payload.shift_id = selectedShiftId
 
-      alert('🔴 ลงเวลาออกงานเรียบร้อยแล้ว!')
-      await checkAttendanceStatus(user.id, hasShifts)
+        const { error } = await supabase.from('attendance').insert([payload])
+        if (error) throw error
+        alert('🟢 ลงเวลาเข้างานเรียบร้อยแล้ว!')
+
+      } else {
+        let query = supabase.from('attendance').update({ 
+          check_out_time: now.toISOString(),
+          check_out_lat: currentLat,
+          check_out_lng: currentLng,
+          check_out_image: imageUrl
+        })
+
+        if (activeRecord?.id) {
+          query = query.eq('id', activeRecord.id)
+        } else {
+          query = query.eq('user_id', user.id).is('check_out_time', null)
+        }
+
+        const { error } = await query
+        if (error) throw error
+        alert('🔴 ลงเวลาออกงานเรียบร้อยแล้ว!')
+      }
+
+      // 5. รีเซ็ตฟอร์มและอัปเดตสถานะ
+      setPhotoFile(null)
+      setPhotoPreview(null)
+      await checkAttendanceStatus(user.id, companySettings.has_shifts)
+
     } catch (err: any) {
       alert('เกิดข้อผิดพลาด: ' + err.message)
     } finally {
@@ -209,7 +284,6 @@ export default function LiffAttendancePage() {
     <div className="min-h-screen bg-slate-50 p-4 max-w-md mx-auto flex flex-col justify-between pb-8">
       <div>
         <div className="bg-indigo-600 text-white rounded-3xl p-6 shadow-lg mb-6 relative">
-          {/* ป้ายแสดง Role ว่าเป็น Manager หรือ Admin */}
           {(user?.role === 'manager' || user?.role === 'admin') && (
             <div className="absolute top-4 right-4 bg-white/20 px-2 py-1 rounded-md text-[10px] font-bold tracking-wider uppercase">
               {user.role}
@@ -234,9 +308,9 @@ export default function LiffAttendancePage() {
           <div className="flex justify-between items-center border-b pb-3">
             <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">โหมดลงเวลา</span>
             <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
-              hasShifts ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+              companySettings?.has_shifts ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
             }`}>
-              {hasShifts ? '🏭 ระบบมีกะการทำงาน' : '🏢 เวลาฟิกซ์มาตรฐาน'}
+              {companySettings?.has_shifts ? '🏭 ระบบมีกะการทำงาน' : '🏢 เวลาฟิกซ์มาตรฐาน'}
             </span>
           </div>
 
@@ -262,7 +336,7 @@ export default function LiffAttendancePage() {
             </div>
           )}
 
-          {hasShifts && !activeRecord && (
+          {companySettings?.has_shifts && !activeRecord && (
             <div className="pt-2">
               <label className="block text-xs font-bold text-slate-700 mb-1.5">เลือกกะการทำงานที่จะเข้า:</label>
               <select
@@ -280,7 +354,39 @@ export default function LiffAttendancePage() {
           )}
         </div>
 
-        {/* ปุ่มลัด (Quick Actions) */}
+        {/* --- ส่วนฟอร์มถ่ายรูป --- */}
+        {companySettings?.require_photo && !isCompletedToday && (
+          <div className="mt-4 bg-white rounded-2xl p-6 border border-slate-200 shadow-sm text-center">
+            <h3 className="text-sm font-bold text-slate-800 mb-3">📸 ถ่ายรูปยืนยันตัวตน</h3>
+            {photoPreview ? (
+              <div className="relative w-full h-48 mb-3 rounded-xl overflow-hidden border-2 border-indigo-200">
+                <img src={photoPreview} alt="Selfie Preview" className="w-full h-full object-cover" />
+                <button 
+                  onClick={() => { setPhotoFile(null); setPhotoPreview(null); }}
+                  className="absolute top-2 right-2 bg-rose-500 text-white rounded-full w-8 h-8 flex items-center justify-center font-bold shadow-md"
+                >
+                  ✕
+                </button>
+              </div>
+            ) : (
+              <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-slate-300 rounded-xl cursor-pointer bg-slate-50 hover:bg-slate-100 transition-colors">
+                <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                  <span className="text-3xl mb-2">🤳</span>
+                  <p className="text-xs font-bold text-slate-500">แตะเพื่อเปิดกล้องหน้า</p>
+                </div>
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  capture="user" 
+                  onChange={handlePhotoChange} 
+                  className="hidden" 
+                />
+              </label>
+            )}
+            <p className="text-[10px] text-slate-400 mt-2">* ระบบจะตรวจสอบพิกัด GPS อัตโนมัติเมื่อกดลงเวลา</p>
+          </div>
+        )}
+
         <div className="mt-4 grid grid-cols-2 gap-3">
           <Link className="p-4 bg-white border border-slate-200 rounded-2xl text-slate-700 font-bold text-sm shadow-sm hover:bg-slate-50 flex flex-col items-center gap-2 transition-colors" href="/liff/leave">
             <span className="text-2xl">📝</span>
@@ -300,7 +406,6 @@ export default function LiffAttendancePage() {
           </Link>
         </div>
         
-        {/* กล่องเมนูพิเศษ: แสดงเฉพาะ Manager และ Admin */}
         {(user?.role === 'manager' || user?.role === 'admin') && (
            <div className="mt-3">
              <Link href="/liff/approvals" className="w-full bg-slate-800 text-white rounded-2xl p-4 flex items-center justify-between hover:bg-slate-700 transition shadow-sm">
@@ -327,11 +432,11 @@ export default function LiffAttendancePage() {
       <div className="mt-8">
         {activeRecord ? (
           <button
-            onClick={handleCheckOut}
+            onClick={() => handleAttendance('out')}
             disabled={submitting}
             className="w-full py-4 bg-rose-600 hover:bg-rose-700 active:scale-95 text-white font-bold rounded-2xl text-lg shadow-lg shadow-rose-200 transition-all disabled:opacity-50"
           >
-            {submitting ? 'กำลังบันทึก...' : '🔴 ลงเวลาออกงาน'}
+            {submitting ? 'กำลังบันทึกข้อมูล...' : '🔴 ลงเวลาออกงาน'}
           </button>
         ) : isCompletedToday ? (
           <button
@@ -342,11 +447,11 @@ export default function LiffAttendancePage() {
           </button>
         ) : (
           <button
-            onClick={handleCheckIn}
-            disabled={submitting || (hasShifts && !selectedShiftId)}
+            onClick={() => handleAttendance('in')}
+            disabled={submitting || (companySettings?.has_shifts && !selectedShiftId)}
             className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold rounded-2xl text-lg shadow-lg shadow-emerald-200 transition-all disabled:opacity-50"
           >
-            {submitting ? 'กำลังบันทึก...' : '🟢 ลงเวลาเข้างาน'}
+            {submitting ? 'กำลังบันทึกข้อมูล...' : '🟢 ลงเวลาเข้างาน'}
           </button>
         )}
       </div>
