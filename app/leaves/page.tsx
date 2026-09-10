@@ -7,6 +7,7 @@ export default function LeavesAdminPage() {
   const [leaves, setLeaves] = useState<any[]>([])
   const [leaveTypes, setLeaveTypes] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [currentUserInfo, setCurrentUserInfo] = useState<any>(null)
   
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -19,11 +20,9 @@ export default function LeavesAdminPage() {
   const fetchData = async () => {
     setIsLoading(true)
 
-    // 1. ดึงข้อมูล Session ปัจจุบันของผู้ใช้ที่กำลังใช้งานอยู่
     const { data: { session } } = await supabase.auth.getSession()
     if (!session) return
 
-    // 2. ดึงข้อมูล Profile ของผู้ที่กำลังใช้งาน เพื่อดูว่าเป็นใคร สิทธิ์อะไร อยู่บริษัทและแผนกไหน
     const { data: currentUser } = await supabase
       .from('users')
       .select('company_id, role, department')
@@ -31,33 +30,28 @@ export default function LeavesAdminPage() {
       .single()
 
     if (!currentUser?.company_id) return
+    setCurrentUserInfo(currentUser)
 
-    // 3. เริ่มดึงข้อมูลการลา โดยต้องเชื่อมกับตาราง users เพื่อตรวจสอบเงื่อนไข
     let query = supabase
       .from('leaves')
-      .select(`*, users!inner (*)`) // ใช้ !inner เพื่อให้กรองจากข้อมูลตาราง users ได้
-      .eq('users.company_id', currentUser.company_id) // กรองเฉพาะบริษัทเดียวกันเสมอ
+      .select(`*, users!inner (*)`) 
+      .eq('users.company_id', currentUser.company_id)
       .order('created_at', { ascending: false })
 
-    // 4. ตรวจสอบสิทธิ์และเพิ่มเงื่อนไขการดึงข้อมูล
     if (currentUser.role === 'manager') {
-      // 4.1 ถ้าเป็น Manager ให้เห็นเฉพาะลูกน้องที่เป็น 'staff' ใน 'department' เดียวกัน
       query = query
         .eq('users.department', currentUser.department)
         .eq('users.role', 'staff')
     } else if (currentUser.role === 'admin') {
-      // 4.2 ถ้าเป็น Admin ให้เห็นพนักงานทุกคนที่ไม่ใช่ admin/super_admin ด้วยกัน (เห็นทั้ง manager และ staff)
       query = query
         .neq('users.role', 'super_admin')
         .neq('users.role', 'admin')
     } else {
-      // 4.3 ถ้าหลุดเข้ามาเป็น Staff (ซึ่งจริงๆ ไม่ควรเข้าหน้านี้ได้) ให้แสดงเฉพาะของตัวเอง
       query = query.eq('users.auth_id', session.user.id)
     }
 
     const [leavesRes, typesRes] = await Promise.all([
       query,
-      // ดึงประเภทการลาเฉพาะของบริษัทนี้
       supabase.from('leave_types').select('*').eq('company_id', currentUser.company_id)
     ])
 
@@ -69,12 +63,18 @@ export default function LeavesAdminPage() {
     setIsLoading(false)
   }
 
-  const handleUpdateStatus = async (leaveId: number, status: 'approved' | 'rejected') => {
-    if (!confirm(`คุณต้องการ ${status === 'approved' ? 'อนุมัติ' : 'ไม่อนุมัติ'} รายการนี้ใช่หรือไม่?`)) return;
+  const handleUpdateStatus = async (leaveId: number, baseStatus: 'approved' | 'rejected') => {
+    if (!confirm(`คุณต้องการ ${baseStatus === 'approved' ? 'อนุมัติ' : 'ไม่อนุมัติ'} รายการนี้ใช่หรือไม่?`)) return;
+
+    // 💡 ปรับลอจิกสถานะให้ตรงกับที่ทำใน LIFF
+    let finalStatus: 'approved' | 'rejected' | 'manager_approved' = baseStatus
+    if (currentUserInfo?.role === 'manager' && baseStatus === 'approved') {
+      finalStatus = 'manager_approved'
+    }
 
     const { error } = await supabase
       .from('leaves')
-      .update({ status })
+      .update({ status: finalStatus })
       .eq('id', leaveId)
 
     if (error) {
@@ -83,11 +83,11 @@ export default function LeavesAdminPage() {
       fetch('/api/notify-leave', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ leaveId, status }),
+        body: JSON.stringify({ id: leaveId, status: finalStatus }), // เปลี่ยน leaveId เป็น id ให้ตรงกับ API
       }).catch((err) => console.error('Notification error:', err))
 
       if (selectedLeave?.id === leaveId) {
-        setSelectedLeave({ ...selectedLeave, status })
+        setSelectedLeave({ ...selectedLeave, status: finalStatus })
       }
       
       fetchData()
@@ -106,7 +106,6 @@ export default function LeavesAdminPage() {
     return matchesSearch && matchesStatus
   })
 
-  // --- Logic คำนวณวันลาและโควต้าใน Modal ---
   let requestedDays = 0;
   let quotaInfo = null;
 
@@ -117,7 +116,6 @@ export default function LeavesAdminPage() {
 
     const typeInfo = leaveTypes.find(t => t.name === selectedLeave.leave_type)
     
-    // นับจำนวนวันที่เคยอนุมัติไปแล้วของพนักงานคนนี้ ในประเภทการลานี้
     const usedDays = leaves
       .filter(l => l.user_id === selectedLeave.user_id && l.leave_type === selectedLeave.leave_type && l.status === 'approved')
       .reduce((acc, curr) => {
@@ -163,6 +161,7 @@ export default function LeavesAdminPage() {
           >
             <option value="all">ทั้งหมด</option>
             <option value="pending">⏳ รออนุมัติ</option>
+            <option value="manager_approved">🟡 รอ HR อนุมัติ</option>
             <option value="approved">✅ อนุมัติแล้ว</option>
             <option value="rejected">❌ ไม่อนุมัติ</option>
           </select>
@@ -199,6 +198,7 @@ export default function LeavesAdminPage() {
                     </td>
                     <td className="py-4">
                       {item.status === 'pending' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-700">⏳ รออนุมัติ</span>}
+                      {item.status === 'manager_approved' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-700">🟡 รอ HR อนุมัติ</span>}
                       {item.status === 'approved' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700">✅ อนุมัติแล้ว</span>}
                       {item.status === 'rejected' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-700">❌ ไม่อนุมัติ</span>}
                     </td>
@@ -238,7 +238,6 @@ export default function LeavesAdminPage() {
                 </div>
               </div>
 
-              {/* ส่วนรายละเอียดการลา & สรุปโควต้า (ใหม่) */}
               <div className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm space-y-3">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -303,7 +302,7 @@ export default function LeavesAdminPage() {
             </div>
 
             <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
-              {selectedLeave.status === 'pending' ? (
+              {(selectedLeave.status === 'pending' || selectedLeave.status === 'manager_approved') ? (
                 <>
                   <button
                     onClick={() => handleUpdateStatus(selectedLeave.id, 'rejected')}
@@ -315,7 +314,7 @@ export default function LeavesAdminPage() {
                     onClick={() => handleUpdateStatus(selectedLeave.id, 'approved')}
                     className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-bold transition-colors shadow-sm"
                   >
-                    ✅ อนุมัติใบลา
+                    {currentUserInfo?.role === 'admin' ? '✅ อนุมัติขั้นสุดท้าย' : '✅ อนุมัติใบลา'}
                   </button>
                 </>
               ) : (
