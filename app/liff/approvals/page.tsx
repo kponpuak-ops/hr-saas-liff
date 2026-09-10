@@ -56,28 +56,45 @@ export default function ManagerApprovalsPage() {
   }
 
   const fetchPendingRequests = async (companyId: number, department: string, role: string, currentWorkflow: string) => {
-    let leaveQuery = supabase.from('leaves').select(`*, users!inner(first_name, last_name, department, role, company_id)`).eq('users.company_id', companyId).order('created_at', { ascending: false })
-    let otQuery = supabase.from('ot_requests').select(`*, users!inner(first_name, last_name, department, role, company_id)`).eq('users.company_id', companyId).order('created_at', { ascending: false })
+    // 1. ดึงข้อมูลที่ 'ยังไม่จบกระบวนการ' ทั้งหมดของบริษัทมาก่อน (แก้ปัญหา Supabase Query ข้ามตาราง)
+    const leaveQuery = supabase
+      .from('leaves')
+      .select(`*, users!inner(first_name, last_name, department, role, company_id)`)
+      .eq('users.company_id', companyId)
+      .in('status', ['pending', 'manager_approved'])
+      .order('created_at', { ascending: false })
 
+    const otQuery = supabase
+      .from('ot_requests')
+      .select(`*, users!inner(first_name, last_name, department, role, company_id)`)
+      .eq('users.company_id', companyId)
+      .in('status', ['pending', 'manager_approved'])
+      .order('created_at', { ascending: false })
+
+    const [leaveRes, otRes] = await Promise.all([leaveQuery, otQuery])
+
+    let finalLeaves = leaveRes.data || []
+    let finalOts = otRes.data || []
+
+    // 2. ใช้ JavaScript กรองข้อมูลให้แสดงผลตรงกับสิทธิ์ 100%
     if (role === 'manager') {
-      // หัวหน้าเห็นเฉพาะพนักงานในแผนกที่สถานะ pending
-      leaveQuery = leaveQuery.eq('status', 'pending').eq('users.department', department).eq('users.role', 'staff')
-      otQuery = otQuery.eq('status', 'pending').eq('users.department', department).eq('users.role', 'staff')
+      // หัวหน้า: เห็นเฉพาะพนักงาน (staff) ในแผนกตัวเอง ที่สถานะ pending
+      finalLeaves = finalLeaves.filter((item: any) => item.status === 'pending' && item.users?.department === department && item.users?.role === 'staff')
+      finalOts = finalOts.filter((item: any) => item.status === 'pending' && item.users?.department === department && item.users?.role === 'staff')
     } else if (role === 'admin') {
       if (currentWorkflow === 'manager_approval') {
-        // แอดมินเห็นรายการที่ manager อนุมัติมาแล้ว + รายการ pending ของ manager/admin ที่ขอเอง
-        leaveQuery = leaveQuery.or('status.eq.manager_approved,and(status.eq.pending,users.role.neq.staff)')
-        otQuery = otQuery.or('status.eq.manager_approved,and(status.eq.pending,users.role.neq.staff)')
+        // แอดมิน (ระบบ 2 ขั้นตอน): เห็นรายการที่หัวหน้ากดมาแล้ว (manager_approved) + รายการที่หัวหน้ายื่นขอเอง (pending)
+        finalLeaves = finalLeaves.filter((item: any) => item.status === 'manager_approved' || (item.status === 'pending' && item.users?.role !== 'staff'))
+        finalOts = finalOts.filter((item: any) => item.status === 'manager_approved' || (item.status === 'pending' && item.users?.role !== 'staff'))
       } else {
-        // ระบบขั้นเดียว แอดมินเห็นรายการ pending ทั้งหมด
-        leaveQuery = leaveQuery.eq('status', 'pending')
-        otQuery = otQuery.eq('status', 'pending')
+        // แอดมิน (ระบบ 1 ขั้นตอน): เห็นรายการ pending ของทุกคน
+        finalLeaves = finalLeaves.filter((item: any) => item.status === 'pending')
+        finalOts = finalOts.filter((item: any) => item.status === 'pending')
       }
     }
 
-    const [leaveRes, otRes] = await Promise.all([leaveQuery, otQuery])
-    if (leaveRes.data) setPendingLeaves(leaveRes.data)
-    if (otRes.data) setPendingOTs(otRes.data)
+    setPendingLeaves(finalLeaves)
+    setPendingOTs(finalOts)
     setIsLoading(false)
   }
 
@@ -189,7 +206,7 @@ export default function ManagerApprovalsPage() {
                   </div>
                   <div className="text-right">
                     <div className="text-xs font-bold text-slate-700 bg-slate-100 px-2 py-1 rounded-lg">
-                      {formatDate(ot.ot_date)}
+                      {formatDate(ot.ot_date || ot.request_date)}
                     </div>
                   </div>
                 </div>
