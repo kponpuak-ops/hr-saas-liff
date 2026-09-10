@@ -25,7 +25,7 @@ export default function LeavesAdminPage() {
 
     const { data: currentUser } = await supabase
       .from('users')
-      .select('company_id, role, department')
+      .select('id, company_id, role, department')
       .eq('auth_id', session.user.id)
       .single()
 
@@ -34,7 +34,12 @@ export default function LeavesAdminPage() {
 
     let query = supabase
       .from('leaves')
-      .select(`*, users!inner (*)`) 
+      .select(`
+        *, 
+        users!inner (*),
+        manager:users!manager_id(first_name, last_name),
+        admin:users!admin_id(first_name, last_name)
+      `) 
       .eq('users.company_id', currentUser.company_id)
       .order('created_at', { ascending: false })
 
@@ -66,15 +71,22 @@ export default function LeavesAdminPage() {
   const handleUpdateStatus = async (leaveId: number, baseStatus: 'approved' | 'rejected') => {
     if (!confirm(`คุณต้องการ ${baseStatus === 'approved' ? 'อนุมัติ' : 'ไม่อนุมัติ'} รายการนี้ใช่หรือไม่?`)) return;
 
-    // 💡 ปรับลอจิกสถานะให้ตรงกับที่ทำใน LIFF
-    let finalStatus: 'approved' | 'rejected' | 'manager_approved' = baseStatus
+    let finalStatus: string = baseStatus
+    let updateData: any = { status: finalStatus }
+
     if (currentUserInfo?.role === 'manager' && baseStatus === 'approved') {
       finalStatus = 'manager_approved'
+      updateData = { status: finalStatus, manager_id: currentUserInfo.id }
+    } else if (currentUserInfo?.role === 'admin' && baseStatus === 'approved') {
+      updateData = { status: finalStatus, admin_id: currentUserInfo.id }
+    } else if (baseStatus === 'rejected') {
+      if (currentUserInfo?.role === 'manager') updateData.manager_id = currentUserInfo.id
+      if (currentUserInfo?.role === 'admin') updateData.admin_id = currentUserInfo.id
     }
 
     const { error } = await supabase
       .from('leaves')
-      .update({ status: finalStatus })
+      .update(updateData)
       .eq('id', leaveId)
 
     if (error) {
@@ -83,7 +95,7 @@ export default function LeavesAdminPage() {
       fetch('/api/notify-leave', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: leaveId, status: finalStatus }), // เปลี่ยน leaveId เป็น id ให้ตรงกับ API
+        body: JSON.stringify({ id: leaveId, status: finalStatus }), 
       }).catch((err) => console.error('Notification error:', err))
 
       if (selectedLeave?.id === leaveId) {
@@ -179,7 +191,7 @@ export default function LeavesAdminPage() {
                   <th className="pb-3 font-medium">ชื่อ-นามสกุล</th>
                   <th className="pb-3 font-medium">ประเภทการลา</th>
                   <th className="pb-3 font-medium">ช่วงวันที่</th>
-                  <th className="pb-3 font-medium">สถานะ</th>
+                  <th className="pb-3 font-medium text-center">สถานะ</th>
                   <th className="pb-3 font-medium text-center">จัดการ</th>
                 </tr>
               </thead>
@@ -196,11 +208,18 @@ export default function LeavesAdminPage() {
                     <td className="py-4 text-sm text-slate-600">
                       {formatDate(item.start_date)} - {formatDate(item.end_date)}
                     </td>
-                    <td className="py-4">
-                      {item.status === 'pending' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-700">⏳ รออนุมัติ</span>}
-                      {item.status === 'manager_approved' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-700">🟡 รอ HR อนุมัติ</span>}
-                      {item.status === 'approved' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700">✅ อนุมัติแล้ว</span>}
-                      {item.status === 'rejected' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-700">❌ ไม่อนุมัติ</span>}
+                    <td className="py-4 text-center">
+                      <div>
+                        {item.status === 'pending' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-700">⏳ รออนุมัติ</span>}
+                        {item.status === 'manager_approved' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-700">🟡 รอ HR อนุมัติ</span>}
+                        {item.status === 'approved' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700">✅ อนุมัติแล้ว</span>}
+                        {item.status === 'rejected' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-700">❌ ไม่อนุมัติ</span>}
+                      </div>
+                      
+                      <div className="mt-2 text-[10px] text-slate-500">
+                        {item.manager_id && <div>หน.: {item.manager?.first_name}</div>}
+                        {item.admin_id && <div>HR: {item.admin?.first_name}</div>}
+                      </div>
                     </td>
                     <td className="py-4 text-center">
                       <button

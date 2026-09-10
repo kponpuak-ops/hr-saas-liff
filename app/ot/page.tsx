@@ -19,7 +19,6 @@ export default function OTAdminPage() {
   const fetchOTRequests = async () => {
     setIsLoading(true)
 
-    // 1. ตรวจสอบ Session และดึงข้อมูลผู้ใช้ปัจจุบัน
     const { data: { session } } = await supabase.auth.getSession()
     if (!session) {
       setIsLoading(false)
@@ -37,27 +36,26 @@ export default function OTAdminPage() {
       return
     }
     
-    // บันทึกข้อมูลผู้ใช้ลง State เพื่อเอาไปเช็ก Role ตอนกดอนุมัติ
     setCurrentUserInfo(currentUser)
 
-    // 2. สร้าง Query ดึงเฉพาะ OT ของบริษัทตัวเอง
     let query = supabase
       .from('ot_requests')
-      .select(`*, users!inner (*)`)
+      .select(`
+        *, 
+        users!inner (*),
+        manager:users!manager_id(first_name, last_name),
+        admin:users!admin_id(first_name, last_name)
+      `)
       .eq('users.company_id', currentUser.company_id)
       .order('created_at', { ascending: false })
 
-    // 3. กรองข้อมูลตามสิทธิ์
     if (currentUser.role === 'manager') {
-      // หัวหน้าแผนก: เห็นเฉพาะพนักงานทั่วไป (staff) ในแผนก (department) เดียวกัน
       query = query
         .eq('users.department', currentUser.department)
         .eq('users.role', 'staff')
     } else if (currentUser.role === 'admin') {
-      // แอดมิน: เห็นของทุกคนในบริษัท ยกเว้น Super Admin
       query = query.neq('users.role', 'super_admin')
     } else {
-      // พนักงานทั่วไป: เห็นแค่ของตัวเอง
       query = query.eq('user_id', currentUser.id)
     }
 
@@ -72,10 +70,17 @@ export default function OTAdminPage() {
   }
 
   const handleUpdateStatus = async (otId: number, baseStatus: 'approved' | 'rejected') => {
-    // 💡 ปรับลอจิกสถานะให้ตรงกับที่ทำใน LIFF
     let finalStatus: string = baseStatus
+    let updateData: any = { status: finalStatus }
+
     if (currentUserInfo?.role === 'manager' && baseStatus === 'approved') {
       finalStatus = 'manager_approved'
+      updateData = { status: finalStatus, manager_id: currentUserInfo.id }
+    } else if (currentUserInfo?.role === 'admin' && baseStatus === 'approved') {
+      updateData = { status: finalStatus, admin_id: currentUserInfo.id }
+    } else if (baseStatus === 'rejected') {
+      if (currentUserInfo?.role === 'manager') updateData.manager_id = currentUserInfo.id
+      if (currentUserInfo?.role === 'admin') updateData.admin_id = currentUserInfo.id
     }
 
     const actionText = finalStatus === 'approved' ? 'อนุมัติขั้นสุดท้าย' : finalStatus === 'manager_approved' ? 'อนุมัติส่งต่อ HR' : 'ไม่อนุมัติ'
@@ -83,7 +88,7 @@ export default function OTAdminPage() {
 
     const { error } = await supabase
       .from('ot_requests')
-      .update({ status: finalStatus })
+      .update(updateData)
       .eq('id', otId)
 
     if (error) {
@@ -92,7 +97,7 @@ export default function OTAdminPage() {
       fetch('/api/notify-ot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: otId, status: finalStatus }), // 💡 เปลี่ยนคีย์เป็น id ให้ตรงกับ API
+        body: JSON.stringify({ id: otId, status: finalStatus }),
       }).catch((err) => console.error('Notification error:', err))
 
       if (selectedOT?.id === otId) {
@@ -203,10 +208,17 @@ export default function OTAdminPage() {
                       </span>
                     </td>
                     <td className="py-4 text-center">
-                      {item.status === 'pending' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-700">⏳ รอดำเนินการ</span>}
-                      {item.status === 'manager_approved' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-700">🟡 รอ HR อนุมัติ</span>}
-                      {item.status === 'approved' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700">✅ อนุมัติเสร็จสิ้น</span>}
-                      {item.status === 'rejected' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-700">❌ ไม่อนุมัติ</span>}
+                      <div>
+                        {item.status === 'pending' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-700">⏳ รอดำเนินการ</span>}
+                        {item.status === 'manager_approved' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-700">🟡 รอ HR อนุมัติ</span>}
+                        {item.status === 'approved' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700">✅ อนุมัติเสร็จสิ้น</span>}
+                        {item.status === 'rejected' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-700">❌ ไม่อนุมัติ</span>}
+                      </div>
+
+                      <div className="mt-2 text-[10px] text-slate-500">
+                        {item.manager_id && <div>หน.: {item.manager?.first_name}</div>}
+                        {item.admin_id && <div>HR: {item.admin?.first_name}</div>}
+                      </div>
                     </td>
                     <td className="py-4 text-center">
                       <button

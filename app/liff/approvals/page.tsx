@@ -102,17 +102,24 @@ export default function ManagerApprovalsPage() {
     if (!confirm(`ยืนยันการ ${action === 'approve' ? '✅ อนุมัติ' : '❌ ไม่อนุมัติ'} คำขอนี้?`)) return
     setIsProcessing(id)
     
-    // ลอจิกกำหนดสถานะใหม่
+    // ลอจิกกำหนดสถานะใหม่ และบันทึกคนกดอนุมัติ
     let newStatus = action === 'approve' ? 'approved' : 'rejected'
+    let updateData: any = { status: newStatus }
+
     if (managerInfo.role === 'manager' && action === 'approve') {
-      // หัวหน้าอนุมัติให้พนักงาน
       newStatus = 'manager_approved'
+      updateData = { status: newStatus, manager_id: managerInfo.id }
+    } else if (managerInfo.role === 'admin' && action === 'approve') {
+      updateData = { status: newStatus, admin_id: managerInfo.id }
+    } else if (action === 'reject') {
+      if (managerInfo.role === 'manager') updateData.manager_id = managerInfo.id
+      if (managerInfo.role === 'admin') updateData.admin_id = managerInfo.id
     }
 
     const table = type === 'leave' ? 'leaves' : 'ot_requests'
     const apiEndpoint = type === 'leave' ? '/api/notify-leave' : '/api/notify-ot'
 
-    const { error } = await supabase.from(table).update({ status: newStatus }).eq('id', id)
+    const { error } = await supabase.from(table).update(updateData).eq('id', id)
 
     if (!error) {
       // เรียก API ให้ส่งแจ้งเตือน LINE
