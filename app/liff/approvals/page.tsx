@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase'
 export default function ManagerApprovalsPage() {
   const [activeTab, setActiveTab] = useState<'leave' | 'ot'>('leave')
   const [managerInfo, setManagerInfo] = useState<any>(null)
+  const [workflow, setWorkflow] = useState<'admin_only' | 'manager_approval'>('admin_only')
   const [pendingLeaves, setPendingLeaves] = useState<any[]>([])
   const [pendingOTs, setPendingOTs] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -30,7 +31,18 @@ export default function ManagerApprovalsPage() {
 
         if (userData && (userData.role === 'manager' || userData.role === 'admin')) {
           setManagerInfo(userData)
-          fetchPendingRequests(userData.company_id, userData.department, userData.role)
+          
+          // ดึงการตั้งค่าสายการอนุมัติของบริษัท
+          const { data: settings } = await supabase
+            .from('company_settings')
+            .select('approval_workflow')
+            .eq('company_id', userData.company_id)
+            .single()
+            
+          const currentWorkflow = settings?.approval_workflow || 'admin_only'
+          setWorkflow(currentWorkflow)
+
+          fetchPendingRequests(userData.company_id, userData.department, userData.role, currentWorkflow)
         } else {
           setIsLoading(false)
         }
@@ -43,63 +55,59 @@ export default function ManagerApprovalsPage() {
     }
   }
 
-  const fetchPendingRequests = async (companyId: number, department: string, role: string) => {
-    // 1. ดึงคำขอลา (Leaves)
-    let leaveQuery = supabase
-      .from('leaves')
-      .select(`*, users!inner(first_name, last_name, department, role, company_id)`)
-      .eq('status', 'pending')
-      .eq('users.company_id', companyId)
-      .order('created_at', { ascending: false })
-
-    // 2. ดึงคำขอ OT (สมมติชื่อตารางว่า ot_requests - ปรับแก้ได้ตามฐานข้อมูลจริง)
-    let otQuery = supabase
-      .from('ot_requests')
-      .select(`*, users!inner(first_name, last_name, department, role, company_id)`)
-      .eq('status', 'pending')
-      .eq('users.company_id', companyId)
-      .order('created_at', { ascending: false })
+  const fetchPendingRequests = async (companyId: number, department: string, role: string, currentWorkflow: string) => {
+    let leaveQuery = supabase.from('leaves').select(`*, users!inner(first_name, last_name, department, role, company_id)`).eq('users.company_id', companyId).order('created_at', { ascending: false })
+    let otQuery = supabase.from('ot_requests').select(`*, users!inner(first_name, last_name, department, role, company_id)`).eq('users.company_id', companyId).order('created_at', { ascending: false })
 
     if (role === 'manager') {
-      leaveQuery = leaveQuery.eq('users.department', department).eq('users.role', 'staff')
-      otQuery = otQuery.eq('users.department', department).eq('users.role', 'staff')
+      // หัวหน้าเห็นเฉพาะพนักงานในแผนกที่สถานะ pending
+      leaveQuery = leaveQuery.eq('status', 'pending').eq('users.department', department).eq('users.role', 'staff')
+      otQuery = otQuery.eq('status', 'pending').eq('users.department', department).eq('users.role', 'staff')
+    } else if (role === 'admin') {
+      if (currentWorkflow === 'manager_approval') {
+        // แอดมินเห็นรายการที่ manager อนุมัติมาแล้ว + รายการ pending ของ manager/admin ที่ขอเอง
+        leaveQuery = leaveQuery.or('status.eq.manager_approved,and(status.eq.pending,users.role.neq.staff)')
+        otQuery = otQuery.or('status.eq.manager_approved,and(status.eq.pending,users.role.neq.staff)')
+      } else {
+        // ระบบขั้นเดียว แอดมินเห็นรายการ pending ทั้งหมด
+        leaveQuery = leaveQuery.eq('status', 'pending')
+        otQuery = otQuery.eq('status', 'pending')
+      }
     }
 
     const [leaveRes, otRes] = await Promise.all([leaveQuery, otQuery])
-    
     if (leaveRes.data) setPendingLeaves(leaveRes.data)
     if (otRes.data) setPendingOTs(otRes.data)
-    
     setIsLoading(false)
   }
 
-  const handleApproval = async (type: 'leave' | 'ot', id: number, action: 'approve' | 'reject') => {
+  const handleApproval = async (type: 'leave' | 'ot', id: number, action: 'approve' | 'reject', requesterRole: string) => {
     if (!confirm(`ยืนยันการ ${action === 'approve' ? '✅ อนุมัติ' : '❌ ไม่อนุมัติ'} คำขอนี้?`)) return
-    
     setIsProcessing(id)
     
-    // ตั้งค่าสถานะ: ถ้าอนุมัติให้เป็น manager_approved เพื่อส่งต่อให้ HR
-    const newStatus = action === 'approve' ? 'manager_approved' : 'rejected'
+    // ลอจิกกำหนดสถานะใหม่
+    let newStatus = action === 'approve' ? 'approved' : 'rejected'
+    if (managerInfo.role === 'manager' && action === 'approve') {
+      // หัวหน้าอนุมัติให้พนักงาน
+      newStatus = 'manager_approved'
+    }
+
     const table = type === 'leave' ? 'leaves' : 'ot_requests'
     const apiEndpoint = type === 'leave' ? '/api/notify-leave' : '/api/notify-ot'
 
-    const { error } = await supabase
-      .from(table)
-      .update({ status: newStatus })
-      .eq('id', id)
+    const { error } = await supabase.from(table).update({ status: newStatus }).eq('id', id)
 
     if (!error) {
+      // เรียก API ให้ส่งแจ้งเตือน LINE
       fetch(apiEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, status: newStatus }),
       }).catch(err => console.error('Notify Error:', err))
 
-      if (type === 'leave') {
-        setPendingLeaves(prev => prev.filter(item => item.id !== id))
-      } else {
-        setPendingOTs(prev => prev.filter(item => item.id !== id))
-      }
+      // ลบรายการออกจากหน้าจอ
+      if (type === 'leave') setPendingLeaves(prev => prev.filter(item => item.id !== id))
+      else setPendingOTs(prev => prev.filter(item => item.id !== id))
     } else {
       alert('เกิดข้อผิดพลาด: ' + error.message)
     }
@@ -113,20 +121,18 @@ export default function ManagerApprovalsPage() {
 
   if (isLoading) return <div className="p-6 text-center text-slate-500 font-medium animate-pulse">กำลังโหลดข้อมูล...</div>
 
-  if (!managerInfo) {
-    return (
-      <div className="p-6 text-center text-rose-500 font-bold bg-rose-50 h-screen flex flex-col justify-center">
-        <span className="text-4xl mb-2 block">🔒</span>คุณไม่มีสิทธิ์เข้าถึงหน้านี้
-      </div>
-    )
-  }
+  if (!managerInfo) return (
+    <div className="p-6 text-center text-rose-500 font-bold bg-rose-50 h-screen flex flex-col justify-center">
+      <span className="text-4xl mb-2 block">🔒</span>คุณไม่มีสิทธิ์เข้าถึงหน้านี้
+    </div>
+  )
 
   return (
     <div className="min-h-screen bg-slate-50 p-4 font-sans pb-10">
       <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-xl font-bold text-slate-800">📋 รออนุมัติ</h1>
-          <p className="text-xs text-slate-500 font-medium">แผนก: {managerInfo.department}</p>
+          <p className="text-xs text-slate-500 font-medium">{managerInfo.role === 'admin' ? 'ฝ่ายบุคคล (HR)' : `แผนก: ${managerInfo.department}`}</p>
         </div>
         <button onClick={() => window.location.href = '/liff'} className="text-xs font-bold text-slate-400 bg-white border border-slate-200 px-3 py-1.5 rounded-lg shadow-sm">
           ✕ ปิด
@@ -134,25 +140,17 @@ export default function ManagerApprovalsPage() {
       </div>
 
       <div className="flex bg-slate-200/50 p-1 rounded-xl mb-4">
-        <button
-          onClick={() => setActiveTab('leave')}
-          className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${activeTab === 'leave' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}
-        >
+        <button onClick={() => setActiveTab('leave')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${activeTab === 'leave' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}>
           📝 ใบลา ({pendingLeaves.length})
         </button>
-        <button
-          onClick={() => setActiveTab('ot')}
-          className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${activeTab === 'ot' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}
-        >
+        <button onClick={() => setActiveTab('ot')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${activeTab === 'ot' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}>
           💰 ขอ OT ({pendingOTs.length})
         </button>
       </div>
 
       <div className="space-y-4">
         {activeTab === 'leave' && (
-          pendingLeaves.length === 0 ? (
-            <p className="text-center text-slate-400 py-8 font-medium">ไม่มีใบลาที่รออนุมัติ</p>
-          ) : (
+          pendingLeaves.length === 0 ? <p className="text-center text-slate-400 py-8 font-medium">ไม่มีใบลาที่รออนุมัติ</p> : (
             pendingLeaves.map(leave => (
               <div key={leave.id} className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200 relative overflow-hidden">
                 <div className="absolute top-0 left-0 w-1.5 h-full bg-amber-400"></div>
@@ -168,10 +166,11 @@ export default function ManagerApprovalsPage() {
                   </div>
                 </div>
                 {leave.reason && <div className="bg-slate-50 p-2.5 rounded-xl text-xs text-slate-600 mb-3 border border-slate-100"><span className="font-bold text-slate-400">เหตุผล: </span>{leave.reason}</div>}
-                {leave.attachment_url && <a href={leave.attachment_url} target="_blank" rel="noreferrer" className="block text-center text-xs font-bold text-indigo-600 bg-indigo-50 py-2 rounded-xl mb-4">📎 ดูไฟล์แนบ</a>}
                 <div className="grid grid-cols-2 gap-3 mt-4 pt-4 border-t border-slate-100">
-                  <button onClick={() => handleApproval('leave', leave.id, 'reject')} disabled={isProcessing === leave.id} className="py-2.5 rounded-xl text-sm font-bold border border-rose-200 text-rose-600 hover:bg-rose-50">❌ ไม่อนุมัติ</button>
-                  <button onClick={() => handleApproval('leave', leave.id, 'approve')} disabled={isProcessing === leave.id} className="py-2.5 rounded-xl text-sm font-bold bg-emerald-500 text-white shadow-sm">✅ อนุมัติให้ HR</button>
+                  <button onClick={() => handleApproval('leave', leave.id, 'reject', leave.users?.role)} disabled={isProcessing === leave.id} className="py-2.5 rounded-xl text-sm font-bold border border-rose-200 text-rose-600 hover:bg-rose-50">❌ ไม่อนุมัติ</button>
+                  <button onClick={() => handleApproval('leave', leave.id, 'approve', leave.users?.role)} disabled={isProcessing === leave.id} className="py-2.5 rounded-xl text-sm font-bold bg-emerald-500 text-white shadow-sm">
+                    {managerInfo.role === 'admin' ? '✅ อนุมัติขั้นสุดท้าย' : '✅ อนุมัติส่งต่อ HR'}
+                  </button>
                 </div>
               </div>
             ))
@@ -179,9 +178,7 @@ export default function ManagerApprovalsPage() {
         )}
 
         {activeTab === 'ot' && (
-          pendingOTs.length === 0 ? (
-            <p className="text-center text-slate-400 py-8 font-medium">ไม่มีคำขอ OT ที่รออนุมัติ</p>
-          ) : (
+          pendingOTs.length === 0 ? <p className="text-center text-slate-400 py-8 font-medium">ไม่มีคำขอ OT ที่รออนุมัติ</p> : (
             pendingOTs.map(ot => (
               <div key={ot.id} className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200 relative overflow-hidden">
                 <div className="absolute top-0 left-0 w-1.5 h-full bg-emerald-400"></div>
@@ -201,8 +198,10 @@ export default function ManagerApprovalsPage() {
                 </div>
                 {ot.reason && <div className="bg-slate-50 p-2.5 rounded-xl text-xs text-slate-600 mb-3 border border-slate-100"><span className="font-bold text-slate-400">เหตุผล: </span>{ot.reason}</div>}
                 <div className="grid grid-cols-2 gap-3 mt-4 pt-4 border-t border-slate-100">
-                  <button onClick={() => handleApproval('ot', ot.id, 'reject')} disabled={isProcessing === ot.id} className="py-2.5 rounded-xl text-sm font-bold border border-rose-200 text-rose-600 hover:bg-rose-50">❌ ไม่อนุมัติ</button>
-                  <button onClick={() => handleApproval('ot', ot.id, 'approve')} disabled={isProcessing === ot.id} className="py-2.5 rounded-xl text-sm font-bold bg-emerald-500 text-white shadow-sm">✅ อนุมัติให้ HR</button>
+                  <button onClick={() => handleApproval('ot', ot.id, 'reject', ot.users?.role)} disabled={isProcessing === ot.id} className="py-2.5 rounded-xl text-sm font-bold border border-rose-200 text-rose-600 hover:bg-rose-50">❌ ไม่อนุมัติ</button>
+                  <button onClick={() => handleApproval('ot', ot.id, 'approve', ot.users?.role)} disabled={isProcessing === ot.id} className="py-2.5 rounded-xl text-sm font-bold bg-emerald-500 text-white shadow-sm">
+                    {managerInfo.role === 'admin' ? '✅ อนุมัติขั้นสุดท้าย' : '✅ อนุมัติส่งต่อ HR'}
+                  </button>
                 </div>
               </div>
             ))

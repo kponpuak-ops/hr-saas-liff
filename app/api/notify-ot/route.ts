@@ -3,7 +3,6 @@ import { supabase } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
 
-// ฟังก์ชันสำหรับส่งข้อความผ่าน LINE Messaging API แบบ Multicast
 async function pushLineMessage(userIds: string[], text: string) {
   if (!process.env.LINE_CHANNEL_ACCESS_TOKEN || userIds.length === 0) return;
 
@@ -28,13 +27,13 @@ async function pushLineMessage(userIds: string[], text: string) {
 export async function POST(req: Request) {
   try {
     const body = await req.json()
-    const { otId, status } = body
+    // 💡 แก้ไขให้รับค่า id แทน otId
+    const { id, status } = body
 
-    // 1. ดึงข้อมูลใบโอทีและพนักงาน
     const { data: ot, error: otError } = await supabase
       .from('ot_requests')
       .select('*, users!inner(*)')
-      .eq('id', otId)
+      .eq('id', id)
       .single()
 
     if (otError || !ot) throw new Error('ไม่พบข้อมูลการขอ OT')
@@ -43,8 +42,8 @@ export async function POST(req: Request) {
     const department = ot.users.department
     const employeeName = `${ot.users.first_name} ${ot.users.last_name}`
     const employeeLineId = ot.users.line_user_id
+    const role = ot.users.role
 
-    // 2. เช็กการตั้งค่าบริษัทว่าอนุมัติกี่ขั้น
     const { data: settings } = await supabase
       .from('company_settings')
       .select('approval_workflow')
@@ -53,17 +52,14 @@ export async function POST(req: Request) {
 
     const isTwoStep = settings?.approval_workflow === 'manager_approval'
 
-    // 3. กำหนดข้อความและผู้รับตามสถานะ
     let targetLineIds: string[] = []
     let message = ''
     
-    // แปลงรูปแบบวันที่และเวลาให้อ่านง่าย
-    const otDate = new Date(ot.request_date).toLocaleDateString('th-TH')
+    const otDate = new Date(ot.ot_date || ot.request_date).toLocaleDateString('th-TH')
     const timeRange = `${ot.start_time.substring(0,5)} - ${ot.end_time.substring(0,5)} น.`
 
     if (status === 'pending') {
-      if (isTwoStep) {
-        // ส่งหา Manager ในแผนกเดียวกัน
+      if (isTwoStep && role === 'staff') {
         const { data: managers } = await supabase
           .from('users')
           .select('line_user_id')
@@ -75,7 +71,6 @@ export async function POST(req: Request) {
         targetLineIds = managers?.map(m => m.line_user_id) || []
         message = `⏱️ มีคำขอ OT ใหม่ (รอหัวหน้าอนุมัติ)\nจาก: ${employeeName}\nวันที่: ${otDate}\nเวลา: ${timeRange}\nกรุณาตรวจสอบในระบบ`
       } else {
-        // ส่งหา Admin ทันที (กรณี Free/Basic)
         const { data: admins } = await supabase
           .from('users')
           .select('line_user_id')
@@ -88,7 +83,6 @@ export async function POST(req: Request) {
       }
     } 
     else if (status === 'manager_approved') {
-      // ส่งหา Admin หลังจาก Manager อนุมัติแล้ว
       const { data: admins } = await supabase
         .from('users')
         .select('line_user_id')
@@ -100,19 +94,16 @@ export async function POST(req: Request) {
       message = `🟡 หัวหน้างานอนุมัติ OT แล้ว (รอ HR)\nจาก: ${employeeName}\nวันที่: ${otDate}\nเวลา: ${timeRange}\nกรุณาตรวจสอบขั้นสุดท้ายในระบบ`
     } 
     else if (status === 'approved' || status === 'rejected') {
-      // ส่งกลับหาพนักงานเพื่อแจ้งผล (ใช้โครงสร้างข้อความเดิมที่คุณคุ้นเคย)
       if (employeeLineId) targetLineIds = [employeeLineId]
-      const statusText = status === 'approved' ? '✅ ได้รับการอนุมัติแล้ว' : '❌ ไม่ได้รับการอนุมัติ'
-      message = `📢 แจ้งเตือนผลการขอ OT\n\nเรียนคุณ ${employeeName}\n\nวันที่: ${otDate}\nเวลา: ${timeRange}\nสถานะ: ${statusText}`
+      const statusText = status === 'approved' ? '✅ อนุมัติแล้ว' : '❌ ไม่อนุมัติ'
+      message = `📢 แจ้งผลการขอ OT:\nวันที่: ${otDate}\nเวลา: ${timeRange}\nสถานะ: ${statusText}`
     }
 
-    // 4. ยิง API ของ LINE
     if (targetLineIds.length > 0 && message) {
       await pushLineMessage(targetLineIds, message)
     }
 
     return NextResponse.json({ success: true })
-
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }

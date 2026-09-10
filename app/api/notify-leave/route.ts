@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 
-// ฟังก์ชันสำหรับส่งข้อความผ่าน LINE Messaging API
+export const dynamic = 'force-dynamic'
+
 async function pushLineMessage(userIds: string[], text: string) {
   if (!process.env.LINE_CHANNEL_ACCESS_TOKEN || userIds.length === 0) return;
 
@@ -26,23 +27,23 @@ async function pushLineMessage(userIds: string[], text: string) {
 export async function POST(req: Request) {
   try {
     const body = await req.json()
-    const { leaveId, status } = body
+    // 💡 แก้ไขให้รับค่า id ตรงกับที่หน้า LIFF ส่งมา
+    const { id, status } = body
 
-    // 1. ดึงข้อมูลใบลาและพนักงาน
     const { data: leave, error: leaveError } = await supabase
       .from('leaves')
       .select('*, users!inner(*)')
-      .eq('id', leaveId)
+      .eq('id', id)
       .single()
 
-    if (leaveError || !leave) throw new Error('ไม่พบข้อมูลใบลา')
+    if (leaveError || !leave) throw new Error('ไม่พบข้อมูลการลา')
 
     const companyId = leave.users.company_id
     const department = leave.users.department
     const employeeName = `${leave.users.first_name} ${leave.users.last_name}`
     const employeeLineId = leave.users.line_user_id
+    const role = leave.users.role
 
-    // 2. เช็กการตั้งค่าบริษัทว่าอนุมัติกี่ขั้น
     const { data: settings } = await supabase
       .from('company_settings')
       .select('approval_workflow')
@@ -51,13 +52,16 @@ export async function POST(req: Request) {
 
     const isTwoStep = settings?.approval_workflow === 'manager_approval'
 
-    // 3. กำหนดข้อความและผู้รับตามสถานะ
     let targetLineIds: string[] = []
     let message = ''
+    
+    const startDate = new Date(leave.start_date).toLocaleDateString('th-TH')
+    const endDate = new Date(leave.end_date).toLocaleDateString('th-TH')
+    const dateRange = startDate === endDate ? startDate : `${startDate} - ${endDate}`
 
     if (status === 'pending') {
-      if (isTwoStep) {
-        // ส่งหา Manager ในแผนกเดียวกัน
+      // 💡 ถ้าเป็นระบบ 2 ขั้น และคนขอคือ Staff ให้ส่งหา Manager ก่อน
+      if (isTwoStep && role === 'staff') {
         const { data: managers } = await supabase
           .from('users')
           .select('line_user_id')
@@ -67,9 +71,9 @@ export async function POST(req: Request) {
           .not('line_user_id', 'is', null)
         
         targetLineIds = managers?.map(m => m.line_user_id) || []
-        message = `📝 มีคำขอลาใหม่ (รอหัวหน้าอนุมัติ)\nจาก: ${employeeName}\nประเภท: ${leave.leave_type}\nกรุณาตรวจสอบในระบบ`
+        message = `📝 มีคำขอลาใหม่ (รอหัวหน้าอนุมัติ)\nจาก: ${employeeName}\nประเภท: ${leave.leave_type}\nวันที่: ${dateRange}\nกรุณาตรวจสอบในระบบ`
       } else {
-        // ส่งหา Admin ทันที (กรณี Free/Basic)
+        // 💡 ระบบขั้นเดียว หรือคนขอเป็น Manager/Admin ให้ส่งหา Admin เลย
         const { data: admins } = await supabase
           .from('users')
           .select('line_user_id')
@@ -78,11 +82,10 @@ export async function POST(req: Request) {
           .not('line_user_id', 'is', null)
         
         targetLineIds = admins?.map(a => a.line_user_id) || []
-        message = `📝 มีคำขอลาใหม่ (รอดำเนินการ)\nจาก: ${employeeName}\nประเภท: ${leave.leave_type}\nกรุณาตรวจสอบในระบบ`
+        message = `📝 มีคำขอลาใหม่ (รอดำเนินการ)\nจาก: ${employeeName}\nประเภท: ${leave.leave_type}\nวันที่: ${dateRange}\nกรุณาตรวจสอบในระบบ`
       }
     } 
     else if (status === 'manager_approved') {
-      // ส่งหา Admin หลังจาก Manager อนุมัติแล้ว
       const { data: admins } = await supabase
         .from('users')
         .select('line_user_id')
@@ -91,22 +94,19 @@ export async function POST(req: Request) {
         .not('line_user_id', 'is', null)
       
       targetLineIds = admins?.map(a => a.line_user_id) || []
-      message = `🟡 หัวหน้างานอนุมัติใบลาแล้ว (รอ HR)\nจาก: ${employeeName}\nประเภท: ${leave.leave_type}\nกรุณาตรวจสอบขั้นสุดท้ายในระบบ`
+      message = `🟡 หัวหน้างานอนุมัติการลาแล้ว (รอ HR)\nจาก: ${employeeName}\nประเภท: ${leave.leave_type}\nวันที่: ${dateRange}\nกรุณาตรวจสอบขั้นสุดท้ายในระบบ`
     } 
     else if (status === 'approved' || status === 'rejected') {
-      // ส่งกลับหาพนักงานเพื่อแจ้งผล
       if (employeeLineId) targetLineIds = [employeeLineId]
       const statusText = status === 'approved' ? '✅ อนุมัติแล้ว' : '❌ ไม่อนุมัติ'
-      message = `แจ้งผลการยื่นใบลา:\nประเภท: ${leave.leave_type}\nสถานะ: ${statusText}\nวันที่: ${new Date(leave.start_date).toLocaleDateString('th-TH')} - ${new Date(leave.end_date).toLocaleDateString('th-TH')}`
+      message = `📢 แจ้งผลการยื่นใบลา:\nประเภท: ${leave.leave_type}\nสถานะ: ${statusText}\nวันที่: ${dateRange}`
     }
 
-    // 4. ยิง API ของ LINE
     if (targetLineIds.length > 0 && message) {
       await pushLineMessage(targetLineIds, message)
     }
 
     return NextResponse.json({ success: true })
-
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
