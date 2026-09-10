@@ -224,7 +224,7 @@ export default function EmployeesPage() {
       employee_id: emp.employee_id || '',
       first_name: emp.first_name || '',
       last_name: emp.last_name || '',
-      role: emp.role || 'Staff',
+      role: emp.role || 'staff',
       email: emp.email || '',
       phone: emp.phone || '',
       emergency_contact: emp.emergency_contact || '',
@@ -313,12 +313,6 @@ export default function EmployeesPage() {
   // อัปเดตสิทธิ์ลงเวลานอกสถานที่โดยตรงจากตาราง
   const toggleRemoteAttendance = async (id: string, currentValue: boolean) => {
     const { error } = await supabase.from('users').update({ allow_remote_attendance: !currentValue }).eq('id', id)
-    if (!error) fetchEmployees()
-  }
-
-  // อัปเดต Role โดยตรงจากตาราง
-  const updateRole = async (id: string, newRole: string) => {
-    const { error } = await supabase.from('users').update({ role: newRole }).eq('id', id)
     if (!error) fetchEmployees()
   }
 
@@ -765,19 +759,13 @@ export default function EmployeesPage() {
                       {emp.employment_type === 'contract' && <span className="px-2.5 py-1 bg-purple-50 text-purple-700 border border-purple-200 rounded-md text-xs font-bold">📝 สัญญาจ้าง</span>}
                     </td>
                     <td className="py-4 text-center">
-                      <select 
-                        value={emp.role || 'staff'} 
-                        onChange={(e) => updateRole(emp.id, e.target.value)}
-                        className={`p-1.5 border rounded-lg text-xs font-bold outline-none cursor-pointer ${
-                          emp.role === 'admin' ? 'bg-rose-50 border-rose-200 text-rose-700' : 
-                          emp.role === 'manager' ? 'bg-amber-50 border-amber-200 text-amber-700' : 
-                          'bg-slate-50 border-slate-300 text-slate-700'
-                        }`}
-                      >
-                        <option value="staff">Staff</option>
-                        <option value="manager">Manager</option>
-                        <option value="admin">Admin</option>
-                      </select>
+                      <span className={`px-2.5 py-1 rounded-md text-xs font-bold ${
+                        emp.role === 'admin' ? 'bg-rose-50 text-rose-700 border border-rose-200' : 
+                        emp.role === 'manager' ? 'bg-amber-50 text-amber-700 border border-amber-200' : 
+                        'bg-slate-50 text-slate-700 border border-slate-200'
+                      }`}>
+                        {emp.role === 'admin' ? 'Admin' : emp.role === 'manager' ? 'Manager' : 'Staff'}
+                      </span>
                     </td>
                     <td className="py-4 text-center">
                       <button 
@@ -881,6 +869,21 @@ export default function EmployeesPage() {
                       <span><span className="font-bold">✉️</span> {selectedProfile.email || '-'}</span>
                       <span>
                         <span className="font-bold">🏦</span> {selectedProfile.payment_method === 'cash' ? 'รับเงินสด' : `โอนเข้าบัญชี (${selectedProfile.bank_account || 'ไม่ได้ระบุ'})`}
+                      </span>
+                    </div>
+                    {/* ข้อมูลเงินเดือนและสวัสดิการ */}
+                    <div className="flex gap-4 pt-1 mt-1 border-t border-slate-100">
+                      <span>
+                        <span className="font-bold">💰 {selectedProfile.employment_type === 'daily' ? 'รายวัน:' : 'เงินเดือน:'}</span>{' '}
+                        <span className="text-emerald-600 font-bold">฿{Number(selectedProfile.employment_type === 'daily' ? (selectedProfile.daily_rate || 0) : (selectedProfile.base_salary || 0)).toLocaleString()}</span>
+                      </span>
+                      <span>
+                        <span className="font-bold">🎁 สวัสดิการ:</span>{' '}
+                        {selectedProfile.benefits && selectedProfile.benefits.length > 0 ? (
+                          <span className="text-indigo-600 font-semibold">{selectedProfile.benefits.map((b: any) => `${b.name} (+฿${b.amount})`).join(', ')}</span>
+                        ) : (
+                          <span className="text-slate-400">-</span>
+                        )}
                       </span>
                     </div>
                   </div>
