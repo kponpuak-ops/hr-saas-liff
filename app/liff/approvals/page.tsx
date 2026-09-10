@@ -59,14 +59,14 @@ export default function ManagerApprovalsPage() {
     // 1. ดึงข้อมูลที่ 'ยังไม่จบกระบวนการ' ทั้งหมดของบริษัทมาก่อน (แก้ปัญหา Supabase Query ข้ามตาราง)
     const leaveQuery = supabase
       .from('leaves')
-      .select(`*, users!inner(first_name, last_name, department, role, company_id)`)
+      .select(`*, users!user_id!inner(first_name, last_name, department, role, company_id)`) // 💡 เพิ่มคำว่า user_id! 
       .eq('users.company_id', companyId)
       .in('status', ['pending', 'manager_approved'])
       .order('created_at', { ascending: false })
 
     const otQuery = supabase
       .from('ot_requests')
-      .select(`*, users!inner(first_name, last_name, department, role, company_id)`)
+      .select(`*, users!user_id!inner(first_name, last_name, department, role, company_id)`) // 💡 เพิ่มคำว่า user_id! 
       .eq('users.company_id', companyId)
       .in('status', ['pending', 'manager_approved'])
       .order('created_at', { ascending: false })

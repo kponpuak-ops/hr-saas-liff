@@ -36,7 +36,7 @@ export default function LeavesAdminPage() {
       .from('leaves')
       .select(`
         *, 
-        users!inner (*),
+        users!user_id!inner (*),
         manager:users!manager_id(first_name, last_name),
         admin:users!admin_id(first_name, last_name)
       `) 
