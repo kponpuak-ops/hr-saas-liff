@@ -128,9 +128,8 @@ export default function LeavePage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          leaveId: newLeave.id, 
+          id: newLeave.id, 
           status: 'pending',
-          companyId: userCompanyId
         }),
       }).catch((err) => console.error('Notification error:', err))
 
