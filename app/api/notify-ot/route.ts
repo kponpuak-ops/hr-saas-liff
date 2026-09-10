@@ -32,7 +32,7 @@ export async function POST(req: Request) {
 
     const { data: ot, error: otError } = await supabase
       .from('ot_requests')
-      .select('*, users!inner(*)')
+      .select('*, users!user_id(*)')
       .eq('id', id)
       .single()
 

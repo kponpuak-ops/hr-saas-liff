@@ -32,7 +32,7 @@ export async function POST(req: Request) {
 
     const { data: leave, error: leaveError } = await supabase
       .from('leaves')
-      .select('*, users!inner(*)')
+      .select('*, users!user_id(*)')
       .eq('id', id)
       .single()
 
