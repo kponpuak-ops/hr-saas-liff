@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 export default function OTAdminPage() {
   const [otRequests, setOtRequests] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [currentUserInfo, setCurrentUserInfo] = useState<any>(null)
   
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -35,6 +36,9 @@ export default function OTAdminPage() {
       setIsLoading(false)
       return
     }
+    
+    // บันทึกข้อมูลผู้ใช้ลง State เพื่อเอาไปเช็ก Role ตอนกดอนุมัติ
+    setCurrentUserInfo(currentUser)
 
     // 2. สร้าง Query ดึงเฉพาะ OT ของบริษัทตัวเอง
     let query = supabase
@@ -67,13 +71,19 @@ export default function OTAdminPage() {
     setIsLoading(false)
   }
 
-  const handleUpdateStatus = async (otId: number, status: 'approved' | 'rejected' | 'manager_approved') => {
-    const actionText = status === 'approved' ? 'อนุมัติขั้นสุดท้าย' : status === 'manager_approved' ? 'อนุมัติ (รอ HR)' : 'ไม่อนุมัติ'
+  const handleUpdateStatus = async (otId: number, baseStatus: 'approved' | 'rejected') => {
+    // 💡 ปรับลอจิกสถานะให้ตรงกับที่ทำใน LIFF
+    let finalStatus: string = baseStatus
+    if (currentUserInfo?.role === 'manager' && baseStatus === 'approved') {
+      finalStatus = 'manager_approved'
+    }
+
+    const actionText = finalStatus === 'approved' ? 'อนุมัติขั้นสุดท้าย' : finalStatus === 'manager_approved' ? 'อนุมัติส่งต่อ HR' : 'ไม่อนุมัติ'
     if (!confirm(`คุณต้องการ ${actionText} รายการ OT นี้ใช่หรือไม่?`)) return;
 
     const { error } = await supabase
       .from('ot_requests')
-      .update({ status })
+      .update({ status: finalStatus })
       .eq('id', otId)
 
     if (error) {
@@ -82,11 +92,11 @@ export default function OTAdminPage() {
       fetch('/api/notify-ot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ otId, status }),
+        body: JSON.stringify({ id: otId, status: finalStatus }), // 💡 เปลี่ยนคีย์เป็น id ให้ตรงกับ API
       }).catch((err) => console.error('Notification error:', err))
 
       if (selectedOT?.id === otId) {
-        setSelectedOT({ ...selectedOT, status })
+        setSelectedOT({ ...selectedOT, status: finalStatus })
       }
       fetchOTRequests()
     }
@@ -280,7 +290,7 @@ export default function OTAdminPage() {
                     onClick={() => handleUpdateStatus(selectedOT.id, 'approved')}
                     className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-bold transition-colors shadow-sm"
                   >
-                    ✅ อนุมัติขั้นสุดท้าย (HR)
+                    {currentUserInfo?.role === 'admin' ? '✅ อนุมัติขั้นสุดท้าย' : '✅ อนุมัติส่งต่อ HR'}
                   </button>
                 </>
               ) : (

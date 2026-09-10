@@ -24,7 +24,7 @@ export default function OTRequestPage() {
         if (liff.isLoggedIn()) {
           const profile = await liff.getProfile()
           
-          // ดึงข้อมูลพนักงาน รวมถึง company_id เพื่อใช้กรองการแจ้งเตือน
+          // ดึงข้อมูลพนักงาน รวมถึง company_id 
           const { data: userData } = await supabase
             .from('users')
             .select('id, company_id')
@@ -78,14 +78,13 @@ export default function OTRequestPage() {
     } else {
       setMessage('ยื่นขอ OT เรียบร้อยแล้ว! รอตรวจสอบ')
       
-      // เรียก API ส่งแจ้งเตือน พร้อมส่ง companyId ไปเช็กสายการอนุมัติ
+      // เรียก API ส่งแจ้งเตือน โดยเปลี่ยน otId เป็น id ให้ตรงกับที่ API รอรับ
       fetch('/api/notify-ot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          otId: newOT.id, 
-          status: 'pending',
-          companyId: userCompanyId 
+          id: newOT.id, 
+          status: 'pending'
         }),
       }).catch((err) => console.error('Notification error:', err))
 
