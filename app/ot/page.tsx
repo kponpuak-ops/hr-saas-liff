@@ -7,7 +7,7 @@ export default function OTAdminPage() {
   const [otRequests, setOtRequests] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [currentUserInfo, setCurrentUserInfo] = useState<any>(null)
-  
+
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [selectedOT, setSelectedOT] = useState<any>(null)
@@ -35,7 +35,7 @@ export default function OTAdminPage() {
       setIsLoading(false)
       return
     }
-    
+
     setCurrentUserInfo(currentUser)
 
     let query = supabase
@@ -130,7 +130,7 @@ export default function OTAdminPage() {
     const fullName = `${req.users?.first_name || ''} ${req.users?.last_name || ''}`.toLowerCase()
     const matchesSearch = fullName.includes(searchTerm.toLowerCase())
     const matchesStatus = statusFilter === 'all' || req.status === statusFilter
-    
+
     return matchesSearch && matchesStatus
   })
 
@@ -147,8 +147,8 @@ export default function OTAdminPage() {
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6 flex flex-wrap gap-4 items-center">
         <div className="flex-1 min-w-[200px]">
           <label className="block text-xs font-bold text-slate-500 mb-1">ค้นหาชื่อพนักงาน</label>
-          <input 
-            type="text" 
+          <input
+            type="text"
             placeholder="พิมพ์ชื่อ..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -157,7 +157,7 @@ export default function OTAdminPage() {
         </div>
         <div className="w-56">
           <label className="block text-xs font-bold text-slate-500 mb-1">กรองสถานะ</label>
-          <select 
+          <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
             className="w-full p-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
@@ -215,9 +215,9 @@ export default function OTAdminPage() {
                         {item.status === 'rejected' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-700">❌ ไม่อนุมัติ</span>}
                       </div>
 
-                      <div className="mt-2 text-[10px] text-slate-500">
-                        {item.manager_id && <div>หน.: {item.manager?.first_name}</div>}
-                        {item.admin_id && <div>HR: {item.admin?.first_name}</div>}
+                      <div className="mt-2 text-xs text-slate-600 font-medium space-y-0.5">
+                        {item.manager_id && <div>หน.: <span className="font-bold text-slate-700">{item.manager?.first_name}</span></div>}
+                        {item.admin_id && <div>HR: <span className="font-bold text-slate-700">{item.admin?.first_name}</span></div>}
                       </div>
                     </td>
                     <td className="py-4 text-center">
@@ -307,9 +307,8 @@ export default function OTAdminPage() {
                 </>
               ) : (
                 <div className="w-full text-center">
-                  <span className={`inline-block px-4 py-2 rounded-lg text-sm font-bold ${
-                    selectedOT.status === 'approved' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
-                  }`}>
+                  <span className={`inline-block px-4 py-2 rounded-lg text-sm font-bold ${selectedOT.status === 'approved' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
+                    }`}>
                     ทำรายการเรียบร้อยแล้ว ({selectedOT.status === 'approved' ? 'อนุมัติ' : 'ไม่อนุมัติ'})
                   </span>
                 </div>

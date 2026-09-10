@@ -8,7 +8,7 @@ export default function LeavesAdminPage() {
   const [leaveTypes, setLeaveTypes] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [currentUserInfo, setCurrentUserInfo] = useState<any>(null)
-  
+
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [selectedLeave, setSelectedLeave] = useState<any>(null)
@@ -39,7 +39,7 @@ export default function LeavesAdminPage() {
         users!user_id!inner (*),
         manager:users!manager_id(first_name, last_name),
         admin:users!admin_id(first_name, last_name)
-      `) 
+      `)
       .eq('users.company_id', currentUser.company_id)
       .order('created_at', { ascending: false })
 
@@ -95,13 +95,13 @@ export default function LeavesAdminPage() {
       fetch('/api/notify-leave', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: leaveId, status: finalStatus }), 
+        body: JSON.stringify({ id: leaveId, status: finalStatus }),
       }).catch((err) => console.error('Notification error:', err))
 
       if (selectedLeave?.id === leaveId) {
         setSelectedLeave({ ...selectedLeave, status: finalStatus })
       }
-      
+
       fetchData()
     }
   }
@@ -127,7 +127,7 @@ export default function LeavesAdminPage() {
     requestedDays = Math.ceil(Math.abs(end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1
 
     const typeInfo = leaveTypes.find(t => t.name === selectedLeave.leave_type)
-    
+
     const usedDays = leaves
       .filter(l => l.user_id === selectedLeave.user_id && l.leave_type === selectedLeave.leave_type && l.status === 'approved')
       .reduce((acc, curr) => {
@@ -139,8 +139,8 @@ export default function LeavesAdminPage() {
     quotaInfo = { used: usedDays, max: typeInfo?.max_paid_days || 0 }
   }
 
-  const isExceeding = quotaInfo && (selectedLeave?.status === 'pending' 
-    ? (quotaInfo.used + requestedDays > quotaInfo.max) 
+  const isExceeding = quotaInfo && (selectedLeave?.status === 'pending'
+    ? (quotaInfo.used + requestedDays > quotaInfo.max)
     : (quotaInfo.used > quotaInfo.max));
 
   if (isLoading) {
@@ -156,8 +156,8 @@ export default function LeavesAdminPage() {
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6 flex flex-wrap gap-4 items-center">
         <div className="flex-1 min-w-[200px]">
           <label className="block text-xs font-bold text-slate-500 mb-1">ค้นหาชื่อพนักงาน</label>
-          <input 
-            type="text" 
+          <input
+            type="text"
             placeholder="พิมพ์ชื่อ..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -166,7 +166,7 @@ export default function LeavesAdminPage() {
         </div>
         <div className="w-48">
           <label className="block text-xs font-bold text-slate-500 mb-1">กรองสถานะ</label>
-          <select 
+          <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
             className="w-full p-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
@@ -215,10 +215,10 @@ export default function LeavesAdminPage() {
                         {item.status === 'approved' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700">✅ อนุมัติแล้ว</span>}
                         {item.status === 'rejected' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-700">❌ ไม่อนุมัติ</span>}
                       </div>
-                      
-                      <div className="mt-2 text-[10px] text-slate-500">
-                        {item.manager_id && <div>หน.: {item.manager?.first_name}</div>}
-                        {item.admin_id && <div>HR: {item.admin?.first_name}</div>}
+
+                      <div className="mt-2 text-xs text-slate-600 font-medium space-y-0.5">
+                        {item.manager_id && <div>หน.: <span className="font-bold text-slate-700">{item.manager?.first_name}</span></div>}
+                        {item.admin_id && <div>HR: <span className="font-bold text-slate-700">{item.admin?.first_name}</span></div>}
                       </div>
                     </td>
                     <td className="py-4 text-center">
@@ -240,7 +240,7 @@ export default function LeavesAdminPage() {
       {selectedLeave && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
-            
+
             <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
               <h2 className="text-lg font-bold text-slate-800">รายละเอียดใบลา</h2>
               <button onClick={() => setSelectedLeave(null)} className="text-slate-400 hover:text-slate-700 transition font-bold">✕ ปิด</button>
@@ -338,9 +338,8 @@ export default function LeavesAdminPage() {
                 </>
               ) : (
                 <div className="w-full text-center">
-                  <span className={`inline-block px-4 py-2 rounded-lg text-sm font-bold ${
-                    selectedLeave.status === 'approved' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
-                  }`}>
+                  <span className={`inline-block px-4 py-2 rounded-lg text-sm font-bold ${selectedLeave.status === 'approved' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
+                    }`}>
                     ทำรายการเรียบร้อยแล้ว ({selectedLeave.status === 'approved' ? 'อนุมัติ' : 'ไม่อนุมัติ'})
                   </span>
                 </div>
