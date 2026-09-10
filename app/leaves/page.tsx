@@ -216,9 +216,27 @@ export default function LeavesAdminPage() {
                         {item.status === 'rejected' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-700">❌ ไม่อนุมัติ</span>}
                       </div>
 
-                      <div className="mt-2 text-xs text-slate-600 font-medium space-y-0.5">
-                        {item.manager_id && <div>หน.: <span className="font-bold text-slate-700">{item.manager?.first_name}</span></div>}
-                        {item.admin_id && <div>HR: <span className="font-bold text-slate-700">{item.admin?.first_name}</span></div>}
+                      <div className="mt-2.5 flex flex-col items-center gap-1 text-xs">
+                        {item.manager_id && (
+                          <div className="flex items-center gap-1.5 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">
+                            {item.status === 'rejected' && !item.admin_id ? (
+                              <span className="text-[10px]">❌</span>
+                            ) : (
+                              <span className="text-[10px]">✅</span>
+                            )}
+                            <span className="text-slate-500">หน.: <span className="font-bold text-slate-700">{item.manager?.first_name}</span></span>
+                          </div>
+                        )}
+                        {item.admin_id && (
+                          <div className="flex items-center gap-1.5 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">
+                            {item.status === 'rejected' ? (
+                              <span className="text-[10px]">❌</span>
+                            ) : (
+                              <span className="text-[10px]">✅</span>
+                            )}
+                            <span className="text-slate-500">HR: <span className="font-bold text-slate-700">{item.admin?.first_name}</span></span>
+                          </div>
+                        )}
                       </div>
                     </td>
                     <td className="py-4 text-center">
