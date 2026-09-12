@@ -16,7 +16,7 @@ export default function EmployeePayslipLiff() {
     const initLiff = async () => {
       try {
         // TODO: ใส่ LIFF ID ที่ได้จาก LINE Developers Console
-        await liff.init({ liffId: 'YOUR_LIFF_ID_HERE' }) 
+        await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID || '' }) 
         
         if (!liff.isLoggedIn()) {
           liff.login()
