@@ -405,6 +405,10 @@ export default function LiffAttendancePage() {
             <span className="text-2xl">⏳</span>
             <span className="text-xs text-center">ประวัติ OT</span>
           </Link>
+          <Link className="col-span-2 p-4 bg-indigo-50 border border-indigo-100 rounded-2xl text-indigo-800 font-bold text-sm shadow-sm hover:bg-indigo-100 flex items-center justify-center gap-3 transition-colors" href="/liff/payslip">
+            <span className="text-2xl">🧾</span>
+            <span>ดูสลิปเงินเดือนของฉัน</span>
+          </Link>
         </div>
         
         {(user?.role === 'manager' || user?.role === 'admin') && (

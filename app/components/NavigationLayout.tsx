@@ -140,6 +140,9 @@ export default function NavigationLayout({ children }: { children: React.ReactNo
           <Link href="/ot" className="flex items-center gap-3 px-4 py-3 text-slate-300 hover:bg-indigo-800 hover:text-white rounded-xl transition-all">
             <span>⏱️</span> จัดการ OT
           </Link>
+          <Link href="/payroll" className="flex items-center gap-3 px-4 py-3 text-slate-300 hover:bg-indigo-800 hover:text-white rounded-xl transition-all">
+            <span>💰</span> จัดการเงินเดือน
+          </Link>
 
           {/* 💡 ตัวอย่างการล็อกเมนู หรือแสดงสัญลักษณ์ตามแพ็กเกจ */}
           <Link

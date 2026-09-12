@@ -7,6 +7,8 @@ export default function AttendanceAdminPage() {
   const [records, setRecords] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [settings, setSettings] = useState<any>(null)
+  const [holidays, setHolidays] = useState<string[]>([])
+  const [otRequests, setOtRequests] = useState<any[]>([])
   const [companyId, setCompanyId] = useState<number | null>(null)
 
   // สำหรับ Popup ขยายรูป
@@ -19,7 +21,7 @@ export default function AttendanceAdminPage() {
   const fetchData = async () => {
     setLoading(true)
     try {
-      // 1. ดึงข้อมูล User ที่ Login เพื่อหา Company ID
+      // 1. ดึงข้อมูล User
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) return
 
@@ -32,7 +34,7 @@ export default function AttendanceAdminPage() {
       if (!userAuth?.company_id) return
       setCompanyId(userAuth.company_id)
 
-      // 2. ดึงการตั้งค่าเฉพาะของบริษัทนั้น
+      // 2. ดึงการตั้งค่าบริษัท
       const { data: companySettings } = await supabase
         .from('company_settings')
         .select('*')
@@ -41,13 +43,30 @@ export default function AttendanceAdminPage() {
       
       setSettings(companySettings)
 
-      // 3. ดึงข้อมูลลงเวลา เฉพาะพนักงานในบริษัทเดียวกันเท่านั้น
+      // 3. ดึงวันหยุดบริษัท
+      const { data: holidaysData } = await supabase
+        .from('company_holidays')
+        .select('holiday_date')
+        .eq('company_id', userAuth.company_id)
+      
+      setHolidays(holidaysData?.map(h => h.holiday_date) || [])
+
+      // 4. ดึง OT ที่อนุมัติแล้ว
+      const { data: otData } = await supabase
+        .from('ot_requests')
+        .select('*, users!user_id!inner(company_id)')
+        .eq('users.company_id', userAuth.company_id)
+        .eq('status', 'approved')
+
+      setOtRequests(otData || [])
+
+      // 5. ดึงข้อมูลลงเวลา
       const { data: attendanceData, error } = await supabase
         .from('attendance')
         .select(`
           *,
-          users!inner (company_id, first_name, last_name, avatar_url, position),
-          work_shifts (shift_name, start_time, end_time)
+          users!inner (company_id, first_name, last_name, avatar_url, position, base_salary, daily_rate),
+          work_shifts (shift_name, start_time, end_time, late_buffer_minutes, late_deduction_per_minute)
         `)
         .eq('users.company_id', userAuth.company_id)
         .order('action_date', { ascending: false })
@@ -101,6 +120,74 @@ export default function AttendanceAdminPage() {
     return { lateMinutes: 0, penalty: 0 }
   }
 
+  const timeToMins = (t: string) => {
+    if (!t) return 0;
+    const [h, m] = t.split(':').map(Number);
+    return h * 60 + m;
+  }
+
+  // ฟังก์ชันคำนวณ OT
+  const calculateOTForRecord = (record: any) => {
+    const otReq = otRequests.find(ot => ot.user_id === record.user_id && ot.request_date === record.action_date);
+    if (!otReq || !record.check_out_time || !record.check_in_time || !settings) return { hours: 0, amount: 0, isHoliday: false };
+
+    const isHoliday = holidays.includes(record.action_date);
+    const shiftInfo = record.work_shifts;
+
+    const useShift = settings.has_shifts;
+    const normStartStr = useShift && shiftInfo ? shiftInfo.start_time : settings.default_start_time;
+    const normEndStr = useShift && shiftInfo ? shiftInfo.end_time : settings.default_end_time;
+    const normStart = timeToMins(normStartStr);
+    const normEnd = timeToMins(normEndStr);
+
+    const otReqStart = timeToMins(otReq.start_time);
+    const otReqEnd = timeToMins(otReq.end_time);
+
+    const checkInDate = new Date(record.check_in_time);
+    const checkOutDate = new Date(record.check_out_time);
+    const attStart = checkInDate.getHours() * 60 + checkInDate.getMinutes();
+    const attEnd = checkOutDate.getHours() * 60 + checkOutDate.getMinutes();
+
+    let actualAttEnd = attEnd < attStart ? attEnd + 1440 : attEnd;
+    let actualOtReqEnd = otReqEnd < otReqStart ? otReqEnd + 1440 : otReqEnd;
+    let actualNormEnd = normEnd < normStart ? normEnd + 1440 : normEnd;
+
+    const validStart = Math.max(otReqStart, attStart);
+    const validEnd = Math.min(actualOtReqEnd, actualAttEnd);
+    if (validStart >= validEnd) return { hours: 0, amount: 0, isHoliday };
+    const totalValidMins = validEnd - validStart;
+
+    const inStart = Math.max(validStart, normStart);
+    const inEnd = Math.min(validEnd, actualNormEnd);
+    let insideMins = inStart < inEnd ? inEnd - inStart : 0;
+    const outsideMins = totalValidMins - insideMins;
+
+    const insideHours = insideMins / 60;
+    const outsideHours = outsideMins / 60;
+
+    const baseSalary = record.users?.base_salary || 0;
+    const dailyRate = record.users?.daily_rate || (baseSalary / 30);
+    const hourlyRate = dailyRate / 8;
+
+    let totalAmount = 0;
+    let totalHours = 0;
+
+    if (isHoliday) {
+        totalAmount = (insideHours * hourlyRate * (settings.ot_rate_holiday_work ?? 2.0)) + 
+                      (outsideHours * hourlyRate * (settings.ot_rate_holiday_ot ?? 3.0));
+        totalHours = insideHours + outsideHours;
+    } else {
+        totalHours = insideHours + outsideHours;
+        totalAmount = totalHours * hourlyRate * (settings.ot_rate_normal ?? 1.5);
+    }
+
+    return { hours: totalHours, amount: totalAmount, isHoliday };
+  }
+
+  const formatMoney = (amount: number) => {
+    return new Intl.NumberFormat('th-TH', { style: 'decimal', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount || 0)
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
@@ -131,24 +218,25 @@ export default function AttendanceAdminPage() {
                   <th className="px-4 py-4 font-semibold text-center">เวลาเข้า / สถานที่</th>
                   <th className="px-4 py-4 font-semibold text-center">เวลาออก / สถานที่</th>
                   <th className="px-4 py-4 font-semibold text-center">รูปถ่ายยืนยัน</th>
-                  <th className="px-4 py-4 font-semibold text-right">สาย / หักเงิน</th>
+                  <th className="px-4 py-4 font-semibold text-right text-rose-600">สาย / หักเงิน</th>
+                  <th className="px-4 py-4 font-semibold text-right text-emerald-600">OT ที่ทำได้จริง</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {loading ? (
                   <tr>
-                    <td colSpan={6} className="text-center py-10 text-slate-500">กำลังโหลดข้อมูล...</td>
+                    <td colSpan={7} className="text-center py-10 text-slate-500">กำลังโหลดข้อมูล...</td>
                   </tr>
                 ) : records.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="text-center py-10 text-slate-500">ยังไม่มีประวัติการลงเวลา</td>
+                    <td colSpan={7} className="text-center py-10 text-slate-500">ยังไม่มีประวัติการลงเวลา</td>
                   </tr>
                 ) : (
                   records.map((record) => {
                     const lateInfo = calculateLate(record.check_in_time, record.work_shifts)
                     const isLate = lateInfo.lateMinutes > 0
+                    const otResult = calculateOTForRecord(record)
                     
-                    // คำนวณระยะห่างตอนเข้าและออกงาน
                     const distIn = calculateDistance(settings?.location_lat, settings?.location_lng, record.check_in_lat, record.check_in_lng)
                     const distOut = calculateDistance(settings?.location_lat, settings?.location_lng, record.check_out_lat, record.check_out_lng)
 
@@ -175,7 +263,6 @@ export default function AttendanceAdminPage() {
                             </div>
                           </div>
                         </td>
-                        {/* คอลัมน์เวลาเข้างาน */}
                         <td className="px-4 py-4 text-center">
                           {record.check_in_time ? (
                             <div className="flex flex-col items-center">
@@ -195,8 +282,6 @@ export default function AttendanceAdminPage() {
                             </div>
                           ) : <span className="text-slate-400">-</span>}
                         </td>
-
-                        {/* คอลัมน์เวลาออกงาน */}
                         <td className="px-4 py-4 text-center">
                           {record.check_out_time ? (
                             <div className="flex flex-col items-center">
@@ -216,6 +301,7 @@ export default function AttendanceAdminPage() {
                             </div>
                           ) : <span className="text-amber-500 text-xs font-semibold bg-amber-50 px-2 py-1 rounded">กำลังปฏิบัติงาน</span>}
                         </td>
+                        {/* 💡 คอลัมน์รูปถ่ายยืนยัน กลับมาแล้วครับ! */}
                         <td className="px-4 py-4 text-center">
                           <div className="flex justify-center gap-2">
                             {record.check_in_image ? (
@@ -234,7 +320,19 @@ export default function AttendanceAdminPage() {
                               <span className="text-rose-800 font-bold mt-0.5">-{lateInfo.penalty} ฿</span>
                             </div>
                           ) : (
-                            <span className="text-emerald-500 text-xs font-bold">✅ ปกติ</span>
+                            <span className="text-slate-300 text-xs">-</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-4 text-right">
+                          {otResult.amount > 0 ? (
+                            <div className="flex flex-col items-end">
+                              <span className={`text-[10px] font-bold px-1.5 rounded ${otResult.isHoliday ? 'bg-purple-100 text-purple-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                                {otResult.hours.toFixed(1)} ชม. ({otResult.isHoliday ? 'วันหยุด' : 'ปกติ'})
+                              </span>
+                              <span className="text-emerald-600 font-bold mt-1">+{formatMoney(otResult.amount)} ฿</span>
+                            </div>
+                          ) : (
+                            <span className="text-slate-300 text-xs">-</span>
                           )}
                         </td>
                       </tr>
@@ -247,7 +345,7 @@ export default function AttendanceAdminPage() {
         </div>
       </div>
 
-      {/* Modal สำหรับขยายรูป */}
+      {/* 💡 Modal สำหรับขยายรูปภาพ */}
       {previewImage && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4" onClick={() => setPreviewImage(null)}>
           <div className="relative max-w-2xl w-full">
