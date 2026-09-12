@@ -12,10 +12,13 @@ export default function EmployeePayslipLiff() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // 💡 State สำหรับตัวกรองปี
+  const [selectedYear, setSelectedYear] = useState<string>(new Date().getFullYear().toString())
+  const [availableYears, setAvailableYears] = useState<string[]>([])
+
   useEffect(() => {
     const initLiff = async () => {
       try {
-        // TODO: ใส่ LIFF ID ที่ได้จาก LINE Developers Console
         await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID || '' }) 
         
         if (!liff.isLoggedIn()) {
@@ -37,7 +40,6 @@ export default function EmployeePayslipLiff() {
 
   const fetchEmployeeData = async (lineUserId: string) => {
     try {
-      // 1. ตรวจสอบว่า LINE UID นี้ผูกกับพนักงานคนไหน
       const { data: empData, error: empError } = await supabase
         .from('users')
         .select('*')
@@ -51,7 +53,6 @@ export default function EmployeePayslipLiff() {
       }
       setEmployee(empData)
 
-      // 2. ดึงเฉพาะสลิปที่ HR กด "อนุมัติแล้ว" เท่านั้น
       const { data: slips } = await supabase
         .from('payslips')
         .select('*, payroll_cycles(name, payment_date)')
@@ -59,7 +60,25 @@ export default function EmployeePayslipLiff() {
         .eq('status', 'approved')
         .order('created_at', { ascending: false })
 
-      setPayslips(slips || [])
+      const fetchedSlips = slips || []
+      setPayslips(fetchedSlips)
+
+      // 💡 ดึง "ปี" ทั้งหมดจากสลิปที่มี เพื่อนำมาสร้าง Dropdown
+      const years = Array.from(new Set(fetchedSlips.map(slip => {
+        const dateStr = slip.payroll_cycles?.payment_date || slip.created_at
+        return new Date(dateStr).getFullYear().toString()
+      })))
+      
+      // เรียงปีจากล่าสุดไปเก่าสุด
+      years.sort((a, b) => Number(b) - Number(a))
+      setAvailableYears(years)
+
+      // ถ้าปีปัจจุบันไม่มีสลิป ให้เปลี่ยนไปเลือกปีล่าสุดที่มีข้อมูลแทน
+      const currentYear = new Date().getFullYear().toString()
+      if (years.length > 0 && !years.includes(currentYear)) {
+        setSelectedYear(years[0])
+      }
+
     } catch (err) {
       setError('เกิดข้อผิดพลาดในการดึงข้อมูล')
     } finally {
@@ -87,6 +106,12 @@ export default function EmployeePayslipLiff() {
     return new Date(dateStr).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' })
   }
 
+  // 💡 กรองสลิปให้แสดงเฉพาะปีที่เลือก
+  const filteredPayslips = payslips.filter(slip => {
+    const dateStr = slip.payroll_cycles?.payment_date || slip.created_at
+    return new Date(dateStr).getFullYear().toString() === selectedYear
+  })
+
   if (loading) {
     return <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-500 font-bold">กำลังโหลดข้อมูล...</div>
   }
@@ -103,7 +128,6 @@ export default function EmployeePayslipLiff() {
 
   return (
     <div className="min-h-screen bg-slate-50 pb-10">
-      {/* Header พนักงาน */}
       <div className="bg-indigo-600 text-white p-6 rounded-b-3xl shadow-md">
         <div className="flex items-center gap-4">
           <div className="w-14 h-14 bg-white/20 rounded-full flex items-center justify-center text-xl font-bold border-2 border-white/50 overflow-hidden">
@@ -119,14 +143,30 @@ export default function EmployeePayslipLiff() {
       <div className="p-4 mt-2">
         {!selectedSlip ? (
           <>
-            <h2 className="text-sm font-bold text-slate-500 mb-4 px-2">🧾 ประวัติสลิปเงินเดือนของคุณ</h2>
-            {payslips.length === 0 ? (
+            <div className="flex justify-between items-center mb-4 px-2">
+              <h2 className="text-sm font-bold text-slate-500">🧾 ประวัติสลิปเงินเดือน</h2>
+              
+              {/* 💡 ตัวเลือกปี (Dropdown) */}
+              {availableYears.length > 0 && (
+                <select 
+                  value={selectedYear}
+                  onChange={(e) => setSelectedYear(e.target.value)}
+                  className="bg-white border border-slate-300 text-slate-700 text-xs font-bold rounded-lg px-3 py-1.5 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
+                >
+                  {availableYears.map(year => (
+                    <option key={year} value={year}>ปี {year}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            {filteredPayslips.length === 0 ? (
               <div className="text-center p-8 bg-white rounded-2xl border border-slate-200 text-slate-500">
-                ยังไม่มีสลิปเงินเดือนในระบบ
+                ยังไม่มีสลิปเงินเดือนของปี {selectedYear}
               </div>
             ) : (
               <div className="space-y-3">
-                {payslips.map(slip => (
+                {filteredPayslips.map(slip => (
                   <div key={slip.id} onClick={() => handleViewSlip(slip)} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm active:scale-[0.98] transition-transform cursor-pointer flex justify-between items-center">
                     <div>
                       <h3 className="font-bold text-slate-800">{slip.payroll_cycles?.name}</h3>
@@ -154,7 +194,6 @@ export default function EmployeePayslipLiff() {
               </div>
 
               <div className="p-5 space-y-5">
-                {/* รายรับ */}
                 <div>
                   <h4 className="text-xs font-bold text-slate-400 uppercase mb-2">รายได้ (Earnings)</h4>
                   <div className="space-y-2 text-sm">
@@ -173,7 +212,6 @@ export default function EmployeePayslipLiff() {
 
                 <div className="border-t border-slate-100"></div>
 
-                {/* รายจ่าย */}
                 <div>
                   <h4 className="text-xs font-bold text-slate-400 uppercase mb-2">รายการหัก (Deductions)</h4>
                   <div className="space-y-2 text-sm">
