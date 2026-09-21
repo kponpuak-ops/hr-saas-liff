@@ -99,6 +99,8 @@ export default function NavigationLayout({ children }: { children: React.ReactNo
         return ['trial', 'pro'].includes(companyPackage)
       case 'multiple_admins': // แอดมินมากกว่า 1 คน
         return ['trial', 'pro'].includes(companyPackage)
+      case 'audit_log': // 💡 เพิ่ม Audit log เข้าไปตรงนี้
+        return ['trial', 'pro'].includes(companyPackage)
       default:
         return true
     }
@@ -142,6 +144,13 @@ export default function NavigationLayout({ children }: { children: React.ReactNo
           </Link>
           <Link href="/payroll" className="flex items-center gap-3 px-4 py-3 text-slate-300 hover:bg-indigo-800 hover:text-white rounded-xl transition-all">
             <span>💰</span> จัดการเงินเดือน
+          </Link>
+          <Link
+            href="/audit-log"
+            className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium ${pathname === '/audit-log' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+          >
+            <span className="text-xl">🕵️</span> ประวัติระบบ
+            {!canAccessFeature('audit_log') && <span className="text-[10px] bg-amber-500 text-white px-1.5 py-0.5 rounded ml-auto">PRO</span>}
           </Link>
 
           {/* 💡 ตัวอย่างการล็อกเมนู หรือแสดงสัญลักษณ์ตามแพ็กเกจ */}

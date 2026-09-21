@@ -122,7 +122,7 @@ export default function PayrollDetailPage() {
     }
   }
 
-  const handleCalculateAll = async () => {
+const handleCalculateAll = async () => {
     if (!confirm('ยืนยันการเริ่มประมวลผลคำนวณเงินเดือนพนักงานทุกคน?')) return
     setIsCalculating(true)
 
@@ -179,6 +179,31 @@ export default function PayrollDetailPage() {
 
         const empAttendances = attendances?.filter(att => att.user_id === emp.id) || []
         
+        // -- 💡 ลอจิกใหม่: ตรวจสอบวันขาดงาน (Absent Check) --
+        let absentDays = 0
+        let currentDate = new Date(cycle.start_date)
+        const endDate = new Date(cycle.end_date)
+
+        while (currentDate <= endDate) {
+          const dateString = currentDate.toISOString().split('T')[0]
+          
+          // เช็กแค่วันหยุดที่ดึงมาจากตาราง company_holidays ของคุณเท่านั้น
+          const isHoliday = holidayDates.includes(dateString)
+
+          if (!isHoliday) {
+            const hasScanned = empAttendances.some(att => att.action_date === dateString)
+            const hasLeave = allApprovedLeaves?.some(l => l.user_id === emp.id && dateString >= l.start_date && dateString <= l.end_date)
+
+            // ถ้าไม่ใช่วันหยุด ไม่ได้สแกนนิ้ว และไม่ได้ลางาน = ขาดงาน
+            if (!hasScanned && !hasLeave) {
+              absentDays++
+            }
+          }
+          currentDate.setDate(currentDate.getDate() + 1)
+        }
+        
+        const absentDeduction = absentDays * dailyRate
+
         // -- คำนวณ OT --
         const empOts = approvedOts?.filter(ot => ot.user_id === emp.id) || []
         let otHoursNormal = 0
@@ -267,8 +292,8 @@ export default function PayrollDetailPage() {
           ssoDeduction = ssoBase > 0 ? (ssoBase * ssRate) : 0
         }
 
-        // -- สรุปยอดสุทธิ --
-        const totalDeductions = leaveDeductions + ssoDeduction + lateDeductionTotal
+        // -- สรุปยอดสุทธิ (เพิ่มหักขาดงาน) --
+        const totalDeductions = leaveDeductions + ssoDeduction + lateDeductionTotal + absentDeduction
         const netPay = baseSalary + totalEarnings - totalDeductions
 
         // 7. บันทึก/อัปเดตลงตาราง payslips
@@ -315,6 +340,9 @@ export default function PayrollDetailPage() {
 
           if (lateDeductionTotal > 0) details.push({ payslip_id: slipId, type: 'deduction', item_name: `หักมาสาย`, amount: lateDeductionTotal })
           if (ssoDeduction > 0) details.push({ payslip_id: slipId, type: 'deduction', item_name: `ประกันสังคม (${(ssRate * 100).toFixed(1)}%)`, amount: ssoDeduction })
+          
+          // 💡 เพิ่มรายการหักเงินกรณีขาดงานลงในสลิป
+          if (absentDays > 0) details.push({ payslip_id: slipId, type: 'deduction', item_name: `ขาดงาน/ละทิ้งหน้าที่ (${absentDays} วัน)`, amount: absentDeduction })
 
           if (details.length > 0) await supabase.from('payslip_details').insert(details)
         }

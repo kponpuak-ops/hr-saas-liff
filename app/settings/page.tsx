@@ -530,10 +530,14 @@ export default function SettingsPage() {
                     </div>
 
                     {/* 📍 กล่องตั้งค่าความปลอดภัย GPS & Selfie */}
-                    <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-                        <h2 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
-                            📍 ความปลอดภัยในการลงเวลา (GPS & Selfie)
-                        </h2>
+                    <div className={`p-6 rounded-2xl border transition-all ${!isPro ? 'bg-slate-50 border-slate-200 opacity-80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                        <div className="flex items-center justify-between mb-4">
+                            <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                                📍 ความปลอดภัยในการลงเวลา (GPS & Selfie)
+                                {!isPro && <span className="bg-amber-500 text-white text-[10px] px-1.5 py-0.5 rounded shadow-sm">PRO</span>}
+                            </h2>
+                        </div>
+                        
                         <div className="space-y-6">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div>
@@ -544,7 +548,8 @@ export default function SettingsPage() {
                                         placeholder="เช่น 13.7563"
                                         value={locationLat}
                                         onChange={(e) => setLocationLat(e.target.value)}
-                                        className="w-full p-3 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                                        disabled={!isPro}
+                                        className="w-full p-3 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
                                     />
                                 </div>
                                 <div>
@@ -555,7 +560,8 @@ export default function SettingsPage() {
                                         placeholder="เช่น 100.5018"
                                         value={locationLng}
                                         onChange={(e) => setLocationLng(e.target.value)}
-                                        className="w-full p-3 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                                        disabled={!isPro}
+                                        className="w-full p-3 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
                                     />
                                 </div>
                             </div>
@@ -567,20 +573,22 @@ export default function SettingsPage() {
                                         type="number" 
                                         value={locationRadius}
                                         onChange={(e) => setLocationRadius(parseInt(e.target.value) || 0)}
-                                        className="w-full p-3 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                                        disabled={!isPro}
+                                        className="w-full p-3 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
                                     />
                                 </div>
                                 <div>
                                     <label className="block text-sm font-bold text-slate-700 mb-2">การยืนยันตัวตน</label>
-                                    <div className="flex items-center gap-3 mt-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                                    <label className={`flex items-center gap-3 mt-3 p-3 rounded-lg border ${!isPro ? 'bg-slate-100 border-slate-200 cursor-not-allowed' : 'bg-slate-50 border-slate-200 cursor-pointer'}`}>
                                         <input 
                                             type="checkbox" 
                                             checked={requirePhoto}
                                             onChange={(e) => setRequirePhoto(e.target.checked)}
-                                            className="w-5 h-5 accent-indigo-600 cursor-pointer" 
+                                            disabled={!isPro}
+                                            className="w-5 h-5 accent-indigo-600 disabled:cursor-not-allowed disabled:opacity-50" 
                                         />
-                                        <span className="text-sm font-bold text-slate-700">📸 บังคับถ่ายรูปเซลฟี่ก่อนลงเวลา</span>
-                                    </div>
+                                        <span className={`text-sm font-bold ${!isPro ? 'text-slate-400' : 'text-slate-700'}`}>📸 บังคับถ่ายรูปเซลฟี่ก่อนลงเวลา</span>
+                                    </label>
                                 </div>
                             </div>
                         </div>
