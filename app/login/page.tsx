@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { supabase } from '../../lib/supabase' // ตรวจสอบ Path ให้ตรงกับโปรเจกต์คุณ
 import { useRouter } from 'next/navigation'
+import Image from 'next/image'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -74,6 +75,16 @@ export default function LoginPage() {
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans">
       <div className="bg-white max-w-md w-full p-8 rounded-2xl shadow-lg border border-slate-100">
         <div className="text-center mb-8">
+          <div className="flex justify-center mb-4">
+          <Image 
+            src="/apro-logo.png" 
+            alt="APro HR Logo" 
+            width={180} 
+            height={180} 
+            className="object-contain mx-auto"
+            priority
+          />
+        </div>
           <h1 className="text-3xl font-black text-indigo-600 mb-2">HR SaaS</h1>
           <p className="text-slate-500">ลงชื่อเข้าใช้งานระบบ</p>
         </div>

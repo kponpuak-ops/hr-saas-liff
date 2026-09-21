@@ -3,8 +3,8 @@ import "./globals.css";
 import NavigationLayout from "./components/NavigationLayout"; // นำเข้า Sidebar ที่เราสร้าง
 
 export const metadata: Metadata = {
-  title: "HR SaaS",
-  description: "HR Management System",
+  title: 'APro HR SaaS', // 💡 เปลี่ยนจาก 'HR SaaS' เป็นชื่อนี้
+  description: 'ระบบจัดการทรัพยากรบุคคล',
 };
 
 export default function RootLayout({

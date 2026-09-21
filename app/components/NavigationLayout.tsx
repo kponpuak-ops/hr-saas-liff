@@ -4,6 +4,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import Image from 'next/image'
 
 export default function NavigationLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
@@ -109,9 +110,28 @@ export default function NavigationLayout({ children }: { children: React.ReactNo
   return (
     <div className="flex min-h-screen bg-slate-50 font-sans">
       <div className="w-64 bg-slate-900 text-white flex flex-col shadow-xl z-10">
-        <div className="p-6 text-2xl font-black text-indigo-400 border-b border-slate-800 tracking-wider">
-          HR SaaS
-          <div className="text-xs font-medium text-slate-400 mt-1 uppercase">Package: <span className="text-emerald-400">{companyPackage}</span></div>
+        <div className="p-6 border-b border-slate-800 flex flex-col gap-2">
+          {/* โลโก้ APro */}
+          <Link href="/" className="w-full flex items-center justify-center hover:opacity-80 transition-opacity py-2 min-h-[80px]">
+            <Image 
+              src="/apro-logo.png" 
+              alt="APro HR Logo" 
+              width={200} 
+              height={200} 
+              className="object-contain mx-auto rounded-2xl" // 💡 เพิ่ม rounded-2xl ตรงนี้
+              priority
+            />
+          </Link>
+          {/* ข้อความแบรนด์ และ แพ็กเกจ */}
+          <div className="flex flex-col items-center w-full mt-2">
+            <span className="text-[16px] font-extrabold text-blue-400 tracking-[0.2em] uppercase mb-1.5">
+              HR SaaS
+            </span>
+            <div className="text-[12px] font-medium text-slate-400 uppercase bg-slate-800/50 px-3 py-1 rounded-full w-full text-center">
+              Package: <span className="text-emerald-400 font-bold ml-1">{companyPackage}</span>
+            </div>
+          </div>
+          
         </div>
         <nav className="flex-1 px-4 py-6 space-y-2">
           {/* เมนูพื้นฐาน (ทุกแพ็กเกจเข้าได้) */}
