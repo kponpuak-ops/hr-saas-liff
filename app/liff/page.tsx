@@ -482,6 +482,11 @@ export default function LiffAttendancePage() {
             <span className="text-2xl">⏳</span>
             <span className="text-xs text-center">ประวัติ OT</span>
           </Link>
+          {/* 💡 เพิ่มปุ่มประวัติลงเวลา ให้แสดงผลแบบเต็มบรรทัด (col-span-2) */}
+          <Link className="col-span-2 p-4 bg-white border border-slate-200 rounded-2xl text-slate-700 font-bold text-sm shadow-sm hover:bg-slate-50 flex items-center justify-center gap-3 transition-colors" href="/liff/attendance-history">
+            <span className="text-2xl">📅</span>
+            <span>ประวัติการลงเวลาของฉัน</span>
+          </Link>
           <Link className="col-span-2 p-4 bg-indigo-50 border border-indigo-100 rounded-2xl text-indigo-800 font-bold text-sm shadow-sm hover:bg-indigo-100 flex items-center justify-center gap-3 transition-colors" href="/liff/payslip">
             <span className="text-2xl">🧾</span>
             <span>ดูสลิปเงินเดือนของฉัน</span>
