@@ -426,7 +426,7 @@ export default function SettingsPage() {
                                         <span className="text-[11px] text-slate-400 mt-1 block">ยืดหยุ่นสายได้ไม่โดนหัก</span>
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-semibold text-slate-600 mb-1">หักเงินสาย (บาท/นาที)</label>
+                                        <label className="block text-xs font-semibold text-slate-600 mb-1">หักเงินสาย / ออกก่อน (บาท/นาที)</label>
                                         <input
                                             type="number"
                                             min="0"
@@ -474,7 +474,7 @@ export default function SettingsPage() {
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-semibold text-slate-600 mb-1">ยืดหยุ่นสาย (นาที)</label>
+                                        <label className="block text-xs font-semibold text-slate-600 mb-1">ยืดหยุ่นสาย/ออกก่อน (นาที)</label>
                                         <input
                                             type="number"
                                             min="0"
@@ -484,7 +484,7 @@ export default function SettingsPage() {
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-semibold text-slate-600 mb-1">หักเงินสาย (บาท/นาที)</label>
+                                        <label className="block text-xs font-semibold text-slate-600 mb-1">หักเงินสาย / ออกก่อน (บาท/นาที)</label>
                                         <div className="flex gap-2">
                                             <input
                                                 type="number"
@@ -511,7 +511,7 @@ export default function SettingsPage() {
                                                 <div>
                                                     <div className="font-bold text-slate-800 text-sm">{s.shift_name}</div>
                                                     <div className="text-xs text-slate-500">
-                                                        เวลา: {s.start_time?.substring(0, 5)} - {s.end_time?.substring(0, 5)} น. (สายได้ {s.late_buffer_minutes ?? 0} นาที • <span className="text-rose-600 font-semibold">หัก {s.late_deduction_per_minute ?? 0} ฿/นาที</span>)
+                                                        เวลา: {s.start_time?.substring(0, 5)} - {s.end_time?.substring(0, 5)} น. (สายได้/ออกก่อนได้ {s.late_buffer_minutes ?? 0} นาที • <span className="text-rose-600 font-semibold">หัก {s.late_deduction_per_minute ?? 0} ฿/นาที</span>)
                                                     </div>
                                                 </div>
                                                 <button

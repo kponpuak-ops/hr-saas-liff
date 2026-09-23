@@ -56,22 +56,7 @@ export default function PayrollDetailPage() {
     return Math.ceil(Math.abs(e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24)) + 1
   }
 
-  const calculateLatePenalty = (checkInTime: string, shiftInfo: any, settings: any) => {
-    if (!checkInTime || !settings) return 0
-    const expectedStartTime = shiftInfo?.start_time || settings.default_start_time
-    const buffer = shiftInfo?.late_buffer_minutes ?? settings.late_buffer_minutes ?? 0
-    const penaltyRate = shiftInfo?.late_deduction_per_minute ?? settings.late_deduction_per_minute ?? 0
-
-    if (!expectedStartTime || penaltyRate <= 0) return 0
-    const checkInDate = new Date(checkInTime)
-    const [expHours, expMinutes] = expectedStartTime.split(':').map(Number)
-    const expectedDate = new Date(checkInTime)
-    expectedDate.setHours(expHours, expMinutes, 0, 0)
-
-    const diffMs = checkInDate.getTime() - expectedDate.getTime()
-    const diffMins = Math.floor(diffMs / 60000)
-    return diffMins > buffer ? diffMins * penaltyRate : 0
-  }
+  // 💡 ลบ calculateLatePenalty ทิ้งไปแล้ว เพราะดึงจาก Database แทน
 
   const timeToMins = (t: string) => {
     if (!t) return 0;
@@ -122,7 +107,7 @@ export default function PayrollDetailPage() {
     }
   }
 
-const handleCalculateAll = async () => {
+  const handleCalculateAll = async () => {
     if (!confirm('ยืนยันการเริ่มประมวลผลคำนวณเงินเดือนพนักงานทุกคน?')) return
     setIsCalculating(true)
 
@@ -179,22 +164,19 @@ const handleCalculateAll = async () => {
 
         const empAttendances = attendances?.filter(att => att.user_id === emp.id) || []
         
-        // -- 💡 ลอจิกใหม่: ตรวจสอบวันขาดงาน (Absent Check) --
+        // -- ตรวจสอบวันขาดงาน (Absent Check) --
         let absentDays = 0
         let currentDate = new Date(cycle.start_date)
         const endDate = new Date(cycle.end_date)
 
         while (currentDate <= endDate) {
           const dateString = currentDate.toISOString().split('T')[0]
-          
-          // เช็กแค่วันหยุดที่ดึงมาจากตาราง company_holidays ของคุณเท่านั้น
           const isHoliday = holidayDates.includes(dateString)
 
           if (!isHoliday) {
             const hasScanned = empAttendances.some(att => att.action_date === dateString)
             const hasLeave = allApprovedLeaves?.some(l => l.user_id === emp.id && dateString >= l.start_date && dateString <= l.end_date)
 
-            // ถ้าไม่ใช่วันหยุด ไม่ได้สแกนนิ้ว และไม่ได้ลางาน = ขาดงาน
             if (!hasScanned && !hasLeave) {
               absentDays++
             }
@@ -242,10 +224,15 @@ const handleCalculateAll = async () => {
 
         const totalEarnings = otEarningsNormal + otEarningsHolidayWork + otEarningsHolidayOt + totalBenefitAmount;
 
-        // -- คำนวณหักมาสาย --
-        let lateDeductionTotal = 0
+        // 💡 -- คำนวณหักมาสาย และ ออกก่อนเวลา (ดึงจาก Database ตรงๆ) --
+        let attendanceDeductionTotal = 0
+        let totalLateMins = 0
+        let totalEarlyMins = 0
+        
         empAttendances.forEach(att => {
-          lateDeductionTotal += calculateLatePenalty(att.check_in_time, att.work_shifts, settings)
+          totalLateMins += att.late_minutes || 0
+          totalEarlyMins += att.early_leave_minutes || 0
+          attendanceDeductionTotal += att.deduction_amount || 0
         })
 
         // -- คำนวณวันลา --
@@ -292,8 +279,8 @@ const handleCalculateAll = async () => {
           ssoDeduction = ssoBase > 0 ? (ssoBase * ssRate) : 0
         }
 
-        // -- สรุปยอดสุทธิ (เพิ่มหักขาดงาน) --
-        const totalDeductions = leaveDeductions + ssoDeduction + lateDeductionTotal + absentDeduction
+        // 💡 -- สรุปยอดสุทธิ (นำ attendanceDeductionTotal มาหักแทนของเก่า) --
+        const totalDeductions = leaveDeductions + ssoDeduction + attendanceDeductionTotal + absentDeduction
         const netPay = baseSalary + totalEarnings - totalDeductions
 
         // 7. บันทึก/อัปเดตลงตาราง payslips
@@ -338,10 +325,18 @@ const handleCalculateAll = async () => {
             details.push({ payslip_id: slipId, type: 'deduction', item_name: `หัก${ld.name} ${ld.days} วัน`, amount: ld.amount })
           })
 
-          if (lateDeductionTotal > 0) details.push({ payslip_id: slipId, type: 'deduction', item_name: `หักมาสาย`, amount: lateDeductionTotal })
+          // 💡 แสดงรายการหักจากการตอกบัตรแบบแจกแจง
+          if (attendanceDeductionTotal > 0) {
+            let desc = 'หักเวลาทำงาน'
+            if (totalLateMins > 0 && totalEarlyMins > 0) desc = `หักเข้าสาย ${totalLateMins} นาที / ออกก่อน ${totalEarlyMins} นาที`
+            else if (totalLateMins > 0) desc = `หักเข้าสาย (${totalLateMins} นาที)`
+            else if (totalEarlyMins > 0) desc = `หักออกก่อนเวลา (${totalEarlyMins} นาที)`
+            
+            details.push({ payslip_id: slipId, type: 'deduction', item_name: desc, amount: attendanceDeductionTotal })
+          }
+
           if (ssoDeduction > 0) details.push({ payslip_id: slipId, type: 'deduction', item_name: `ประกันสังคม (${(ssRate * 100).toFixed(1)}%)`, amount: ssoDeduction })
           
-          // 💡 เพิ่มรายการหักเงินกรณีขาดงานลงในสลิป
           if (absentDays > 0) details.push({ payslip_id: slipId, type: 'deduction', item_name: `ขาดงาน/ละทิ้งหน้าที่ (${absentDays} วัน)`, amount: absentDeduction })
 
           if (details.length > 0) await supabase.from('payslip_details').insert(details)
@@ -377,16 +372,12 @@ const handleCalculateAll = async () => {
     setIsCalculating(false)
   }
 
-  // 💡 ฟังก์ชันปลดล็อกรอบบิล
   const handleUnlockPayroll = async () => {
     if (!confirm('🔓 ยืนยันการปลดล็อกรอบบิล?\n\nข้อควรระวัง:\n- สลิปของพนักงานจะถูกซ่อนกลับเป็นสถานะ "ร่าง (Draft)"\n- คุณจะต้องกดประมวลผลและเผยแพร่ใหม่อีกครั้งหลังจากแก้ไขเสร็จ')) return
     setIsCalculating(true)
 
     try {
-      // 1. ดึงสลิปกลับเป็น draft
       await supabase.from('payslips').update({ status: 'draft' }).eq('payroll_cycle_id', cycleId)
-      
-      // 2. เปลี่ยนสถานะรอบบิลกลับเป็น processing
       await supabase.from('payroll_cycles').update({ status: 'processing' }).eq('id', cycleId)
 
       alert('🔓 ปลดล็อกรอบบิลเรียบร้อยแล้ว คุณสามารถแก้ไขและกดประมวลผลใหม่ได้เลย')
@@ -438,7 +429,6 @@ const handleCalculateAll = async () => {
           </p>
         </div>
         
-        {/* 💡 อัปเดตปุ่มจัดการด้านบนให้รองรับระบบ Unlock */}
         <div className="flex gap-3">
           {cycle?.status !== 'completed' && (
             <button 

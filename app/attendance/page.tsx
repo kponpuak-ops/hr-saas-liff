@@ -60,7 +60,7 @@ export default function AttendanceAdminPage() {
 
       setOtRequests(otData || [])
 
-      // 5. ดึงข้อมูลลงเวลา
+      // 5. ดึงข้อมูลลงเวลา (คอลัมน์ใหม่จะถูกดึงมาด้วยอัตโนมัติผ่าน select *)
       const { data: attendanceData, error } = await supabase
         .from('attendance')
         .select(`
@@ -94,31 +94,7 @@ export default function AttendanceAdminPage() {
     return Math.round(R * c)
   }
 
-  // ฟังก์ชันคำนวณมาสาย
-  const calculateLate = (checkInTime: string, shiftInfo: any) => {
-    if (!checkInTime || !settings) return { lateMinutes: 0, penalty: 0 }
-
-    const expectedStartTime = shiftInfo?.start_time || settings.default_start_time
-    const buffer = shiftInfo?.late_buffer_minutes ?? settings.late_buffer_minutes ?? 0
-    const penaltyRate = shiftInfo?.late_deduction_per_minute ?? settings.late_deduction_per_minute ?? 0
-
-    if (!expectedStartTime) return { lateMinutes: 0, penalty: 0 }
-
-    const checkInDate = new Date(checkInTime)
-    const [expHours, expMinutes] = expectedStartTime.split(':').map(Number)
-    const expectedDate = new Date(checkInTime)
-    expectedDate.setHours(expHours, expMinutes, 0, 0)
-
-    const diffMs = checkInDate.getTime() - expectedDate.getTime()
-    const diffMins = Math.floor(diffMs / 60000)
-
-    if (diffMins > buffer) {
-      const penalty = diffMins * penaltyRate
-      return { lateMinutes: diffMins, penalty }
-    }
-
-    return { lateMinutes: 0, penalty: 0 }
-  }
+  // 💡 ลบฟังก์ชัน calculateLate แบบเก่าทิ้งไปแล้ว
 
   const timeToMins = (t: string) => {
     if (!t) return 0;
@@ -218,7 +194,8 @@ export default function AttendanceAdminPage() {
                   <th className="px-4 py-4 font-semibold text-center">เวลาเข้า / สถานที่</th>
                   <th className="px-4 py-4 font-semibold text-center">เวลาออก / สถานที่</th>
                   <th className="px-4 py-4 font-semibold text-center">รูปถ่ายยืนยัน</th>
-                  <th className="px-4 py-4 font-semibold text-right text-rose-600">สาย / หักเงิน</th>
+                  {/* 💡 เปลี่ยนชื่อคอลัมน์ให้ครอบคลุม */}
+                  <th className="px-4 py-4 font-semibold text-right text-rose-600">สาย / ออกก่อน / หักเงิน</th>
                   <th className="px-4 py-4 font-semibold text-right text-emerald-600">OT ที่ทำได้จริง</th>
                 </tr>
               </thead>
@@ -233,8 +210,6 @@ export default function AttendanceAdminPage() {
                   </tr>
                 ) : (
                   records.map((record) => {
-                    const lateInfo = calculateLate(record.check_in_time, record.work_shifts)
-                    const isLate = lateInfo.lateMinutes > 0
                     const otResult = calculateOTForRecord(record)
                     
                     const distIn = calculateDistance(settings?.location_lat, settings?.location_lng, record.check_in_lat, record.check_in_lng)
@@ -301,7 +276,6 @@ export default function AttendanceAdminPage() {
                             </div>
                           ) : <span className="text-amber-500 text-xs font-semibold bg-amber-50 px-2 py-1 rounded">กำลังปฏิบัติงาน</span>}
                         </td>
-                        {/* 💡 คอลัมน์รูปถ่ายยืนยัน กลับมาแล้วครับ! */}
                         <td className="px-4 py-4 text-center">
                           <div className="flex justify-center gap-2">
                             {record.check_in_image ? (
@@ -313,16 +287,20 @@ export default function AttendanceAdminPage() {
                             ) : <div className="w-10 h-10 rounded bg-slate-100 flex items-center justify-center text-xs text-slate-400">OUT</div>}
                           </div>
                         </td>
+                        
+                        {/* 💡 ดึงค่าจาก Database มาแสดงผลเลยแบบ 100% */}
                         <td className="px-4 py-4 text-right">
-                          {isLate ? (
+                          {record.deduction_amount > 0 ? (
                             <div className="flex flex-col items-end">
-                              <span className="text-rose-600 text-xs font-bold">สาย {lateInfo.lateMinutes} นาที</span>
-                              <span className="text-rose-800 font-bold mt-0.5">-{lateInfo.penalty} ฿</span>
+                              {record.late_minutes > 0 && <span className="text-rose-600 text-[11px] font-medium">สาย {record.late_minutes} นาที</span>}
+                              {record.early_leave_minutes > 0 && <span className="text-rose-600 text-[11px] font-medium">ออกก่อน {record.early_leave_minutes} นาที</span>}
+                              <span className="text-rose-800 font-bold mt-0.5">-{formatMoney(record.deduction_amount)} ฿</span>
                             </div>
                           ) : (
                             <span className="text-slate-300 text-xs">-</span>
                           )}
                         </td>
+
                         <td className="px-4 py-4 text-right">
                           {otResult.amount > 0 ? (
                             <div className="flex flex-col items-end">
@@ -345,7 +323,6 @@ export default function AttendanceAdminPage() {
         </div>
       </div>
 
-      {/* 💡 Modal สำหรับขยายรูปภาพ */}
       {previewImage && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4" onClick={() => setPreviewImage(null)}>
           <div className="relative max-w-2xl w-full">

@@ -39,7 +39,6 @@ export default function LiffAttendancePage() {
 
       const profile = await liff.getProfile()
 
-      // 1. ดึงข้อมูลพนักงานก่อน เพื่อเอา company_id
       const { data: userData } = await supabase
         .from('users')
         .select('*')
@@ -52,7 +51,6 @@ export default function LiffAttendancePage() {
       }
       setUser(userData)
 
-      // 2. ดึงการตั้งค่าบริษัทตาม company_id
       const { data: settings } = await supabase
         .from('company_settings')
         .select('*')
@@ -61,7 +59,6 @@ export default function LiffAttendancePage() {
       
       setCompanySettings(settings || {})
 
-      // 3. ดึงข้อมูลกะ (ถ้าเปิดใช้งาน)
       if (settings?.has_shifts) {
         const { data: shiftData } = await supabase
           .from('work_shifts')
@@ -141,19 +138,17 @@ export default function LiffAttendancePage() {
     }
   }
 
-  // --- ฟังก์ชันคำนวณระยะทางพิกัด (Haversine Formula) ---
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-    const R = 6371e3 // รัศมีโลก (เมตร)
+    const R = 6371e3 
     const p1 = lat1 * Math.PI/180
     const p2 = lat2 * Math.PI/180
     const dp = (lat2-lat1) * Math.PI/180
     const dl = (lon2-lon1) * Math.PI/180
     const a = Math.sin(dp/2) * Math.sin(dp/2) + Math.cos(p1) * Math.cos(p2) * Math.sin(dl/2) * Math.sin(dl/2)
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
-    return R * c // คืนค่าเป็นเมตร
+    return R * c 
   }
 
-  // --- ฟังก์ชันจัดการอัปโหลดภาพ ---
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
@@ -162,23 +157,98 @@ export default function LiffAttendancePage() {
     }
   }
 
-  // --- ฟังก์ชันหลักสำหรับลงเวลา เข้า/ออก ---
+  // --- ฟังก์ชันหลักสำหรับลงเวลา เข้า/ออก (ฉบับ Enterprise) ---
   const handleAttendance = async (type: 'in' | 'out') => {
     if (!user || !companySettings) return
 
-    // 1. ตรวจสอบเงื่อนไขรูปถ่าย
     if (companySettings.require_photo && !photoFile) {
       alert('📸 กรุณาถ่ายรูปเซลฟี่เพื่อยืนยันตัวตนก่อนลงเวลา')
       return
     }
 
     setSubmitting(true)
+    const now = new Date()
+    const todayDate = now.toISOString().split('T')[0]
+
+    // 💡 ตัวแปรสำหรับเก็บค่าปรับที่จะส่งเข้า DB
+    let lateMins = 0;
+    let earlyMins = 0;
+    let deductionAmt = 0;
+
+    // ==========================================
+    // 🔴 ตรวจสอบการ "ออกก่อนเวลา" (Check-out)
+    // ==========================================
+    if (type === 'out' && activeRecord) {
+      let expectedEndTimeStr = '';
+      let isNightShift = false;
+      let deductRateOut = companySettings.late_deduction_per_minute || 0;
+
+      if (activeRecord.work_shifts) {
+        expectedEndTimeStr = activeRecord.work_shifts.end_time;
+        deductRateOut = activeRecord.work_shifts.late_deduction_per_minute || 0;
+        if (activeRecord.work_shifts.end_time < activeRecord.work_shifts.start_time) {
+          isNightShift = true;
+        }
+      } else if (companySettings.default_end_time) {
+        expectedEndTimeStr = companySettings.default_end_time;
+      }
+
+      if (expectedEndTimeStr) {
+        const actionDate = activeRecord.action_date || todayDate;
+        let expectedTimeDate = new Date(`${actionDate}T${expectedEndTimeStr}+07:00`);
+
+        if (isNightShift) expectedTimeDate.setDate(expectedTimeDate.getDate() + 1);
+
+        if (now < expectedTimeDate) {
+          earlyMins = Math.floor((expectedTimeDate.getTime() - now.getTime()) / 60000);
+          
+          const confirmEarlyOut = window.confirm(
+            `⚠️ แจ้งเตือน: คุณกำลังออกก่อนเวลา ${earlyMins} นาที\n(อาจถูกหักเงิน ${earlyMins * deductRateOut} บาท)\n\nยืนยันที่จะตอกบัตรออกหรือไม่?`
+          );
+          
+          if (!confirmEarlyOut) {
+            setSubmitting(false);
+            return; 
+          }
+          deductionAmt = earlyMins * deductRateOut;
+        }
+      }
+    }
+
+    // ==========================================
+    // 🟢 ตรวจสอบการ "เข้าสาย" (Check-in)
+    // ==========================================
+    if (type === 'in') {
+      let expectedStartTimeStr = companySettings.default_start_time;
+      let bufferMins = companySettings.late_buffer_minutes || 0;
+      let deductRateIn = companySettings.late_deduction_per_minute || 0;
+
+      if (companySettings.has_shifts && selectedShiftId) {
+        const currentShift = shifts.find(s => s.id === selectedShiftId);
+        if (currentShift) {
+          expectedStartTimeStr = currentShift.start_time;
+          bufferMins = currentShift.late_buffer_minutes || 0;
+          deductRateIn = currentShift.late_deduction_per_minute || 0;
+        }
+      }
+
+      if (expectedStartTimeStr) {
+        const expectedTimeDate = new Date(`${todayDate}T${expectedStartTimeStr}+07:00`);
+        const maxAllowedTime = new Date(expectedTimeDate.getTime() + (bufferMins * 60000));
+        
+        if (now > maxAllowedTime) {
+           // นำจำนวนนาทีที่สายทั้งหมด มาลบกับนาทีที่อนุโลม (bufferMins)
+           lateMins = Math.floor((now.getTime() - expectedTimeDate.getTime()) / 60000) - bufferMins; 
+           deductionAmt = lateMins * deductRateIn;
+        }
+      }
+    }
+
     let currentLat = null
     let currentLng = null
     let imageUrl = null
 
     try {
-      // 1. ดึงพิกัด GPS ของมือถือพนักงานเสมอ (บังคับดึงทุกครั้งที่กดเข้า-ออกงาน)
       try {
         const position = await new Promise<GeolocationPosition>((resolve, reject) => {
           navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 10000 })
@@ -191,7 +261,6 @@ export default function LiffAttendancePage() {
         return
       }
 
-      // 2. เช็กพิกัดออฟฟิศ (ยกเว้นพนักงานที่ได้สิทธิ์ลงเวลานอกสถานที่)
       if (companySettings.location_lat && companySettings.location_lng && !user.allow_remote_attendance) {
         const distance = calculateDistance(
           companySettings.location_lat, 
@@ -207,7 +276,6 @@ export default function LiffAttendancePage() {
         }
       }
 
-      // 3. อัปโหลดรูปภาพ (ถ้ามี)
       if (photoFile) {
         const fileExt = photoFile.name.split('.').pop()
         const fileName = `${user.id}_${Date.now()}_${type}.${fileExt}`
@@ -223,11 +291,10 @@ export default function LiffAttendancePage() {
         imageUrl = publicUrlData.publicUrl
       }
 
-      // 4. บันทึกลงฐานข้อมูล
-      const now = new Date()
-      
+      // ==========================================
+      // 💾 บันทึกข้อมูลลงฐานข้อมูล พร้อมคอลัมน์ใหม่
+      // ==========================================
       if (type === 'in') {
-        const todayDate = now.toISOString().split('T')[0]
         const payload: any = {
           user_id: user.id,
           company_id: user.company_id,
@@ -235,20 +302,29 @@ export default function LiffAttendancePage() {
           check_in_time: now.toISOString(),
           check_in_lat: currentLat,
           check_in_lng: currentLng,
-          check_in_image: imageUrl
+          check_in_image: imageUrl,
+          late_minutes: lateMins,           // 💡 เซฟนาทีสาย
+          deduction_amount: deductionAmt    // 💡 เซฟยอดหักเงิน
         }
         if (companySettings.has_shifts && selectedShiftId) payload.shift_id = selectedShiftId
 
         const { error } = await supabase.from('attendance').insert([payload])
         if (error) throw error
-        alert('🟢 ลงเวลาเข้างานเรียบร้อยแล้ว!')
+        
+        if (lateMins > 0) alert(`🟢 ลงเวลาเรียบร้อย (คุณเข้าสาย ${lateMins} นาที)`);
+        else alert('🟢 ลงเวลาเข้างานเรียบร้อยแล้ว!');
 
       } else {
+        // 💡 นำยอดหักตอนเข้างาน มาบวกกับยอดหักตอนออกก่อนเวลา
+        const totalDeduction = (activeRecord?.deduction_amount || 0) + deductionAmt;
+
         let query = supabase.from('attendance').update({ 
           check_out_time: now.toISOString(),
           check_out_lat: currentLat,
           check_out_lng: currentLng,
-          check_out_image: imageUrl
+          check_out_image: imageUrl,
+          early_leave_minutes: earlyMins,   // 💡 เซฟนาทีออกก่อน
+          deduction_amount: totalDeduction  // 💡 เซฟยอดหักสุทธิ
         })
 
         if (activeRecord?.id) {
@@ -259,10 +335,11 @@ export default function LiffAttendancePage() {
 
         const { error } = await query
         if (error) throw error
-        alert('🔴 ลงเวลาออกงานเรียบร้อยแล้ว!')
+        
+        if (earlyMins > 0) alert(`🔴 ลงเวลาเรียบร้อย (คุณออกก่อนเวลา ${earlyMins} นาที)`);
+        else alert('🔴 ลงเวลาออกงานเรียบร้อยแล้ว!');
       }
 
-      // 5. รีเซ็ตฟอร์มและอัปเดตสถานะ
       setPhotoFile(null)
       setPhotoPreview(null)
       await checkAttendanceStatus(user.id, companySettings.has_shifts)
@@ -356,7 +433,6 @@ export default function LiffAttendancePage() {
           )}
         </div>
 
-        {/* --- ส่วนฟอร์มถ่ายรูป --- */}
         {companySettings?.require_photo && !isCompletedToday && (
           <div className="mt-4 bg-white rounded-2xl p-6 border border-slate-200 shadow-sm text-center">
             <h3 className="text-sm font-bold text-slate-800 mb-3">📸 ถ่ายรูปยืนยันตัวตน</h3>
