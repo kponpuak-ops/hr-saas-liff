@@ -267,6 +267,7 @@ export default function ManagementReportPage() {
             <span>ฐานเงินเดือน: {formatMoney(kpis.totalBaseSalary)} ฿</span>
             <span className="text-emerald-600">OT: +{formatMoney(kpis.totalOtCost)} ฿</span>
             <span className="text-emerald-600">เบี้ยขยัน: +{formatMoney(kpis.totalDiligence)} ฿</span>
+            <span className="text-purple-600">สวัสดิการอื่นๆ: +{formatMoney(kpis.totalOtherBenefits)} ฿</span>
             <span className="text-rose-500">หักรวม: -{formatMoney(kpis.totalDeductions)} ฿</span>
           </div>
         </div>
