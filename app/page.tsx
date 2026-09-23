@@ -51,15 +51,9 @@ export default function AnalyticsDashboard() {
         .select('id, first_name, last_name, department, position')
         .eq('company_id', companyId)
         .neq('role', 'super_admin')
-        .neq('role', 'admin')
+        
         
       const employeeCount = employees?.length || 0
-
-      const { data: settings } = await supabase
-        .from('company_settings')
-        .select('*')
-        .eq('company_id', companyId)
-        .single()
 
       // 2. ข้อมูลลงเวลาวันนี้
       const { data: attendanceData } = await supabase
@@ -85,34 +79,22 @@ export default function AnalyticsDashboard() {
       let presentUserIds: number[] = [];
       let onLeaveUserIds: number[] = leaveData?.map(l => l.user_id) || [];
 
-      if (attendanceData && settings) {
+      // 💡 ดึงตัวเลขสาย/ออกก่อน จากฐานข้อมูลโดยตรง
+      if (attendanceData) {
         attendanceData.forEach(record => {
           presentUserIds.push(record.user_id)
-          if (!record.check_in_time) return;
-          const checkInTime = new Date(record.check_in_time);
           
-          let startTime = settings.default_start_time;
-          let bufferMins = settings.late_buffer_minutes || 0;
-          
-          if (settings.has_shifts && record.work_shifts) {
-            startTime = record.work_shifts.start_time;
-            bufferMins = record.work_shifts.late_buffer_minutes || 0;
-          }
+          const lateMins = record.late_minutes || 0;
+          const earlyMins = record.early_leave_minutes || 0;
 
-          if (startTime) {
-            const expectedTime = new Date(`${record.action_date}T${startTime}+07:00`);
-            const maxAllowedTime = new Date(expectedTime.getTime() + (bufferMins * 60000));
-            
-            if (checkInTime > maxAllowedTime) {
-              lateCount++;
-              const lateMinutes = Math.floor((checkInTime.getTime() - expectedTime.getTime()) / 60000);
-              lateUsers.push({
-                type: 'late',
-                user: record.users,
-                time: record.check_in_time,
-                mins: lateMinutes
-              });
-            }
+          if (lateMins > 0 || earlyMins > 0) {
+            lateCount++;
+            lateUsers.push({
+              type: 'late_early',
+              user: record.users,
+              lateMins: lateMins,
+              earlyMins: earlyMins
+            });
           }
         });
       }
@@ -197,7 +179,7 @@ export default function AnalyticsDashboard() {
       setStats({
         totalEmployees: employeeCount,
         presentToday: presentCount,
-        lateToday: lateCount,
+        lateToday: lateCount, // 💡 ตอนนี้ lateToday นับรวมคนออกก่อนด้วย
         absentToday: absentCount,
         onLeaveToday: leaveCount,
         pendingLeaves: pendingLeaveCount,
@@ -216,10 +198,10 @@ export default function AnalyticsDashboard() {
   const COLORS = ['#10b981', '#f59e0b', '#ef4444', '#3b82f6'];
   const pieData = [
     { name: 'ตรงเวลา', value: stats.presentToday - stats.lateToday },
-    { name: 'มาสาย', value: stats.lateToday },
+    { name: 'สาย/ออกก่อน', value: stats.lateToday }, // 💡 เปลี่ยนชื่อป้าย
     { name: 'ขาดงาน', value: stats.absentToday },
     { name: 'ลางาน', value: stats.onLeaveToday },
-  ].filter(item => item.value > 0) // ซ่อนค่าที่เป็น 0
+  ].filter(item => item.value > 0)
 
   if (isLoading) {
     return (
@@ -285,7 +267,7 @@ export default function AnalyticsDashboard() {
           <div className="absolute -bottom-4 -right-4 text-7xl opacity-[0.03] group-hover:scale-110 group-hover:opacity-[0.05] transition-all duration-300 pointer-events-none">✅</div>
         </Link>
 
-        {/* 3. สาย */}
+        {/* 3. สาย / ออกก่อน */}
         <Link href="/attendance" className="relative overflow-hidden bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-lg hover:border-amber-300 hover:-translate-y-1 transition-all group block">
           <div className="flex justify-between items-start mb-2">
             <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center text-xl shadow-sm border border-amber-100">
@@ -294,7 +276,7 @@ export default function AnalyticsDashboard() {
             <span className="text-slate-300 group-hover:text-amber-500 transition-colors">↗</span>
           </div>
           <div className="mt-3">
-            <div className="text-slate-500 text-xs font-bold mb-1 uppercase tracking-wider">เข้าสาย</div>
+            <div className="text-slate-500 text-xs font-bold mb-1 uppercase tracking-wider">สาย / ออกก่อน</div>
             <div className="flex items-baseline gap-2">
               <span className="text-3xl font-extrabold text-amber-500">{stats.lateToday}</span>
               <span className="text-xs font-medium text-slate-400">คน</span>
@@ -400,15 +382,15 @@ export default function AnalyticsDashboard() {
       {/* --- ส่วนที่ 3: ตารางรายชื่อ Actionable (รายการที่ต้องจัดการ) --- */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
-        {/* รายชื่อคนมาสาย และ ขาดงาน */}
+        {/* รายชื่อคนมาสาย / ออกก่อน และ ขาดงาน */}
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm lg:col-span-1">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-sm font-bold text-slate-800">⚠️ รายชื่อมาสาย / ขาดงาน</h2>
+            <h2 className="text-sm font-bold text-slate-800">⚠️ รายชื่อ สาย / ออกก่อน / ขาดงาน</h2>
             <span className="bg-rose-100 text-rose-700 text-xs font-bold px-2 py-0.5 rounded-full">{lateAbsentList.length} รายการ</span>
           </div>
           <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
             {lateAbsentList.length === 0 ? (
-              <p className="text-center text-slate-400 text-sm py-4">ยอดเยี่ยม! วันนี้ไม่มีพนักงานขาดหรือสาย</p>
+              <p className="text-center text-slate-400 text-sm py-4">ยอดเยี่ยม! วันนี้ไม่มีพนักงานสายหรือขาด</p>
             ) : (
               lateAbsentList.map((item, idx) => (
                 <div key={idx} className="flex justify-between items-center p-3 bg-slate-50 border border-slate-100 rounded-lg">
@@ -416,9 +398,11 @@ export default function AnalyticsDashboard() {
                     <div className="text-sm font-bold text-slate-800">{item.user?.first_name} {item.user?.last_name}</div>
                     <div className="text-xs text-slate-500">{item.user?.department || 'ไม่ระบุแผนก'}</div>
                   </div>
-                  {item.type === 'late' ? (
-                    <div className="text-right">
-                      <span className="text-xs font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded-md">สาย {item.mins} นาที</span>
+                  {/* 💡 แจกแจงป้ายกำกับแยกกันระหว่างสายกับออกก่อน */}
+                  {item.type === 'late_early' ? (
+                    <div className="text-right flex flex-col items-end gap-1">
+                      {item.lateMins > 0 && <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md">เข้าสาย {item.lateMins} นาที</span>}
+                      {item.earlyMins > 0 && <span className="text-[10px] font-bold text-orange-600 bg-orange-50 px-2 py-0.5 rounded-md">ออกก่อน {item.earlyMins} นาที</span>}
                     </div>
                   ) : (
                     <div className="text-right">

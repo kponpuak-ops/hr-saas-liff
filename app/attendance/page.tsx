@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { supabase } from '../../lib/supabase'
+import { supabase } from '@/lib/supabase'
 
 export default function AttendanceAdminPage() {
   const [records, setRecords] = useState<any[]>([])
@@ -10,9 +10,22 @@ export default function AttendanceAdminPage() {
   const [holidays, setHolidays] = useState<string[]>([])
   const [otRequests, setOtRequests] = useState<any[]>([])
   const [companyId, setCompanyId] = useState<number | null>(null)
+  
+  // State สำหรับ Dropdown พนักงานใน Modal
+  const [usersList, setUsersList] = useState<any[]>([])
 
   // สำหรับ Popup ขยายรูป
   const [previewImage, setPreviewImage] = useState<string | null>(null)
+
+  // State สำหรับ Modal เพิ่ม/แก้ไขเวลา
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [formData, setFormData] = useState({
+    userId: '',
+    actionDate: new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' }),
+    checkInTime: '',
+    checkOutTime: ''
+  })
 
   useEffect(() => {
     fetchData()
@@ -21,7 +34,6 @@ export default function AttendanceAdminPage() {
   const fetchData = async () => {
     setLoading(true)
     try {
-      // 1. ดึงข้อมูล User
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) return
 
@@ -34,33 +46,38 @@ export default function AttendanceAdminPage() {
       if (!userAuth?.company_id) return
       setCompanyId(userAuth.company_id)
 
-      // 2. ดึงการตั้งค่าบริษัท
+      // ดึงการตั้งค่าบริษัท
       const { data: companySettings } = await supabase
         .from('company_settings')
         .select('*')
         .eq('company_id', userAuth.company_id)
         .single()
-      
       setSettings(companySettings)
 
-      // 3. ดึงวันหยุดบริษัท
+      // ดึงรายชื่อพนักงานสำหรับ Dropdown
+      const { data: empData } = await supabase
+        .from('users')
+        .select('id, first_name, last_name, employee_id')
+        .eq('company_id', userAuth.company_id)
+        .neq('role', 'super_admin')
+      setUsersList(empData || [])
+
+      // ดึงวันหยุดบริษัท
       const { data: holidaysData } = await supabase
         .from('company_holidays')
         .select('holiday_date')
         .eq('company_id', userAuth.company_id)
-      
       setHolidays(holidaysData?.map(h => h.holiday_date) || [])
 
-      // 4. ดึง OT ที่อนุมัติแล้ว
+      // ดึง OT ที่อนุมัติแล้ว
       const { data: otData } = await supabase
         .from('ot_requests')
         .select('*, users!user_id!inner(company_id)')
         .eq('users.company_id', userAuth.company_id)
         .eq('status', 'approved')
-
       setOtRequests(otData || [])
 
-      // 5. ดึงข้อมูลลงเวลา (คอลัมน์ใหม่จะถูกดึงมาด้วยอัตโนมัติผ่าน select *)
+      // ดึงข้อมูลลงเวลา
       const { data: attendanceData, error } = await supabase
         .from('attendance')
         .select(`
@@ -81,7 +98,92 @@ export default function AttendanceAdminPage() {
     }
   }
 
-  // ฟังก์ชันคำนวณระยะทาง
+  // ฟังก์ชันบันทึกข้อมูลแบบ Manual
+  const handleManualSave = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!formData.userId || !formData.actionDate || !formData.checkInTime) {
+      alert('กรุณากรอกข้อมูลให้ครบถ้วนอย่างน้อย วันที่, พนักงาน และ เวลาเข้างาน')
+      return
+    }
+
+    setIsSaving(true)
+    try {
+      let lateMins = 0
+      let earlyMins = 0
+      let deductAmt = 0
+
+      const checkInDateTime = new Date(`${formData.actionDate}T${formData.checkInTime}:00+07:00`)
+      const expectedIn = new Date(`${formData.actionDate}T${settings?.default_start_time || '08:00'}:00+07:00`)
+      const buffer = settings?.late_buffer_minutes || 0
+      const maxAllowedIn = new Date(expectedIn.getTime() + (buffer * 60000))
+
+      if (checkInDateTime > maxAllowedIn) {
+        lateMins = Math.floor((checkInDateTime.getTime() - expectedIn.getTime()) / 60000)
+      }
+
+      let checkOutDateTime = null
+      if (formData.checkOutTime) {
+        checkOutDateTime = new Date(`${formData.actionDate}T${formData.checkOutTime}:00+07:00`)
+        const expectedOut = new Date(`${formData.actionDate}T${settings?.default_end_time || '17:00'}:00+07:00`)
+        if (checkOutDateTime < expectedOut) {
+          earlyMins = Math.floor((expectedOut.getTime() - checkOutDateTime.getTime()) / 60000)
+        }
+      }
+
+      const rate = settings?.late_deduction_per_minute || 0
+      deductAmt = (lateMins + earlyMins) * rate
+
+      // 💡 1. เปลี่ยนเป็น .maybeSingle() ป้องกันบั๊กกรณีหาข้อมูลไม่เจอ
+      const { data: existingRecord, error: checkError } = await supabase
+        .from('attendance')
+        .select('id')
+        .eq('user_id', formData.userId)
+        .eq('action_date', formData.actionDate)
+        .maybeSingle()
+
+      if (checkError) throw checkError;
+
+      if (existingRecord) {
+        // 💡 2. ดัก Error ตอน Update
+        const { error: updateError } = await supabase.from('attendance').update({
+          check_in_time: checkInDateTime.toISOString(),
+          check_out_time: checkOutDateTime ? checkOutDateTime.toISOString() : null,
+          late_minutes: lateMins,
+          early_leave_minutes: earlyMins,
+          deduction_amount: deductAmt,
+          is_manual: true
+        }).eq('id', existingRecord.id)
+        
+        if (updateError) throw updateError;
+      } else {
+        // 💡 3. ดัก Error ตอน Insert
+        const { error: insertError } = await supabase.from('attendance').insert({
+          company_id: companyId,
+          user_id: formData.userId,
+          action_date: formData.actionDate,
+          check_in_time: checkInDateTime.toISOString(),
+          check_out_time: checkOutDateTime ? checkOutDateTime.toISOString() : null,
+          late_minutes: lateMins,
+          early_leave_minutes: earlyMins,
+          deduction_amount: deductAmt,
+          is_manual: true
+        })
+
+        if (insertError) throw insertError;
+      }
+
+      alert('บันทึกข้อมูลเรียบร้อยแล้ว')
+      setIsModalOpen(false)
+      fetchData() // รีเฟรชตารางใหม่ทันที
+    } catch (error: any) {
+      console.error('Save error:', error)
+      // 💡 โชว์ข้อความ Error จากฐานข้อมูลให้เห็นชัดๆ
+      alert('เกิดข้อผิดพลาด: ' + (error.message || JSON.stringify(error)))
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
     if (!lat1 || !lon1 || !lat2 || !lon2) return null
     const R = 6371e3
@@ -94,15 +196,12 @@ export default function AttendanceAdminPage() {
     return Math.round(R * c)
   }
 
-  // 💡 ลบฟังก์ชัน calculateLate แบบเก่าทิ้งไปแล้ว
-
   const timeToMins = (t: string) => {
     if (!t) return 0;
     const [h, m] = t.split(':').map(Number);
     return h * 60 + m;
   }
 
-  // ฟังก์ชันคำนวณ OT
   const calculateOTForRecord = (record: any) => {
     const otReq = otRequests.find(ot => ot.user_id === record.user_id && ot.request_date === record.action_date);
     if (!otReq || !record.check_out_time || !record.check_in_time || !settings) return { hours: 0, amount: 0, isHoliday: false };
@@ -176,12 +275,21 @@ export default function AttendanceAdminPage() {
               {settings?.location_lat && ` • 📍 รัศมี GPS ${settings.location_radius}ม.`}
             </p>
           </div>
-          <button 
-            onClick={fetchData}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow text-sm font-medium transition"
-          >
-            🔄 รีเฟรชข้อมูล
-          </button>
+          <div className="flex gap-3">
+            {/* 💡 ปุ่มเพิ่ม/แก้ไขเวลา มาแล้วครับ */}
+            <button 
+              onClick={() => setIsModalOpen(true)}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow text-sm font-medium transition flex items-center gap-2"
+            >
+              📝 เพิ่ม/แก้ไขเวลา
+            </button>
+            <button 
+              onClick={fetchData}
+              className="px-4 py-2 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-lg shadow-sm text-sm font-medium transition flex items-center gap-2"
+            >
+              🔄 รีเฟรชข้อมูล
+            </button>
+          </div>
         </div>
 
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
@@ -194,7 +302,6 @@ export default function AttendanceAdminPage() {
                   <th className="px-4 py-4 font-semibold text-center">เวลาเข้า / สถานที่</th>
                   <th className="px-4 py-4 font-semibold text-center">เวลาออก / สถานที่</th>
                   <th className="px-4 py-4 font-semibold text-center">รูปถ่ายยืนยัน</th>
-                  {/* 💡 เปลี่ยนชื่อคอลัมน์ให้ครอบคลุม */}
                   <th className="px-4 py-4 font-semibold text-right text-rose-600">สาย / ออกก่อน / หักเงิน</th>
                   <th className="px-4 py-4 font-semibold text-right text-emerald-600">OT ที่ทำได้จริง</th>
                 </tr>
@@ -211,7 +318,6 @@ export default function AttendanceAdminPage() {
                 ) : (
                   records.map((record) => {
                     const otResult = calculateOTForRecord(record)
-                    
                     const distIn = calculateDistance(settings?.location_lat, settings?.location_lng, record.check_in_lat, record.check_in_lng)
                     const distOut = calculateDistance(settings?.location_lat, settings?.location_lng, record.check_out_lat, record.check_out_lng)
 
@@ -233,7 +339,10 @@ export default function AttendanceAdminPage() {
                               )}
                             </div>
                             <div>
-                              <p className="font-medium text-slate-800">{record.users?.first_name} {record.users?.last_name}</p>
+                              <p className="font-medium text-slate-800">
+                                {record.users?.first_name} {record.users?.last_name}
+                                {record.is_manual && <span className="ml-2 text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">HR แก้ไข</span>}
+                              </p>
                               <p className="text-xs text-slate-500">{record.users?.position || 'พนักงาน'}</p>
                             </div>
                           </div>
@@ -287,8 +396,6 @@ export default function AttendanceAdminPage() {
                             ) : <div className="w-10 h-10 rounded bg-slate-100 flex items-center justify-center text-xs text-slate-400">OUT</div>}
                           </div>
                         </td>
-                        
-                        {/* 💡 ดึงค่าจาก Database มาแสดงผลเลยแบบ 100% */}
                         <td className="px-4 py-4 text-right">
                           {record.deduction_amount > 0 ? (
                             <div className="flex flex-col items-end">
@@ -300,7 +407,6 @@ export default function AttendanceAdminPage() {
                             <span className="text-slate-300 text-xs">-</span>
                           )}
                         </td>
-
                         <td className="px-4 py-4 text-right">
                           {otResult.amount > 0 ? (
                             <div className="flex flex-col items-end">
@@ -322,6 +428,83 @@ export default function AttendanceAdminPage() {
           </div>
         </div>
       </div>
+
+      {/* --- Modal Window สำหรับ HR --- */}
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4 animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+            <div className="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+              <h2 className="font-bold text-slate-800 text-lg">📝 เพิ่ม/แก้ไขเวลาตอกบัตร</h2>
+              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600 text-xl">&times;</button>
+            </div>
+            
+            <form onSubmit={handleManualSave} className="p-5 space-y-4">
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1">พนักงาน</label>
+                <select 
+                  required
+                  value={formData.userId}
+                  onChange={(e) => setFormData({...formData, userId: e.target.value})}
+                  className="w-full p-2.5 border border-slate-200 rounded-lg text-sm bg-slate-50 outline-none focus:border-indigo-500"
+                >
+                  <option value="">-- เลือกพนักงาน --</option>
+                  {usersList.map(u => (
+                    <option key={u.id} value={u.id}>{u.first_name} {u.last_name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1">วันที่ทำงาน</label>
+                <input 
+                  type="date" required
+                  value={formData.actionDate}
+                  onChange={(e) => setFormData({...formData, actionDate: e.target.value})}
+                  className="w-full p-2.5 border border-slate-200 rounded-lg text-sm bg-slate-50 outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">เวลาเข้างาน</label>
+                  <input 
+                    type="time" required
+                    value={formData.checkInTime}
+                    onChange={(e) => setFormData({...formData, checkInTime: e.target.value})}
+                    className="w-full p-2.5 border border-slate-200 rounded-lg text-sm bg-slate-50 outline-none focus:border-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">เวลาออกงาน</label>
+                  <input 
+                    type="time"
+                    value={formData.checkOutTime}
+                    onChange={(e) => setFormData({...formData, checkOutTime: e.target.value})}
+                    className="w-full p-2.5 border border-slate-200 rounded-lg text-sm bg-slate-50 outline-none focus:border-indigo-500"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">ปล่อยว่างได้หากยังไม่เลิกงาน</p>
+                </div>
+              </div>
+
+              <div className="pt-4 flex gap-3">
+                <button 
+                  type="button" 
+                  onClick={() => setIsModalOpen(false)}
+                  className="flex-1 px-4 py-2 bg-slate-100 text-slate-600 rounded-lg text-sm font-bold hover:bg-slate-200"
+                >
+                  ยกเลิก
+                </button>
+                <button 
+                  type="submit" disabled={isSaving}
+                  className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {isSaving ? 'กำลังบันทึก...' : 'บันทึกข้อมูล'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {previewImage && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4" onClick={() => setPreviewImage(null)}>

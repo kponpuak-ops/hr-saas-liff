@@ -78,10 +78,10 @@ export default function OTHistoryPage() {
     
     if (actualHours <= 0) return 0
 
+    // 💡 จ่ายตามเวลาทำจริง (เศษนาทีเป็นทศนิยม) แต่สูงสุดไม่เกินที่ขออนุมัติไว้
     const validHours = Math.min(reqHours, actualHours)
-    const finalHours = Math.floor(validHours * 2) / 2
 
-    return finalHours
+    return validHours
   }
 
   const filteredHistory = filterMonth 
