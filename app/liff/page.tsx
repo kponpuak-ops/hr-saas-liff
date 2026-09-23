@@ -230,6 +230,7 @@ export default function LiffAttendancePage() {
         const todayDate = now.toISOString().split('T')[0]
         const payload: any = {
           user_id: user.id,
+          company_id: user.company_id,
           action_date: todayDate,
           check_in_time: now.toISOString(),
           check_in_lat: currentLat,

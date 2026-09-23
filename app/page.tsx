@@ -18,12 +18,21 @@ export default function AnalyticsDashboard() {
     fetchDashboardStats()
   }, [])
 
-const fetchDashboardStats = async () => {
+  const fetchDashboardStats = async () => {
     setIsLoading(true)
-    const todayStr = new Date().toISOString().split('T')[0]
+    
+    // 1. หาวันที่ปัจจุบันของไทย
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' })
+    
+    // 2. สร้างออบเจกต์เวลาเริ่มต้น-สิ้นสุดวันของไทย
+    const startOfDayThai = new Date(`${todayStr}T00:00:00+07:00`)
+    const endOfDayThai = new Date(`${todayStr}T23:59:59+07:00`)
+    
+    // 3. แปลงเป็นรูปแบบ UTC มาตรฐาน (ISO String) ที่ Supabase เข้าใจและไม่ Error 400
+    const startOfDay = startOfDayThai.toISOString()
+    const endOfDay = endOfDayThai.toISOString()
 
     try {
-      // 1. ดึงข้อมูล Session และ Company ID ของแอดมินที่กำลังใช้งาน
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) return
 
@@ -37,7 +46,6 @@ const fetchDashboardStats = async () => {
       
       const companyId = currentUser.company_id
 
-      // 2. จำนวนพนักงานทั้งหมด (กรองเฉพาะบริษัทตัวเอง และซ่อนผู้ดูแลระบบ)
       const { count: employeeCount } = await supabase
         .from('users')
         .select('*', { count: 'exact', head: true })
@@ -45,31 +53,33 @@ const fetchDashboardStats = async () => {
         .neq('role', 'super_admin')
         .neq('role', 'admin')
 
-      // 3. การลงเวลาวันนี้
-      const { data: attendanceData } = await supabase
+      // ดึงข้อมูลการลงเวลาด้วยเวลา UTC มาตรฐาน
+      const { data: attendanceData, error: attendanceError } = await supabase
         .from('attendance')
         .select('*')
-        // .eq('company_id', companyId) // 💡 เปิดคอมเมนต์บรรทัดนี้ หากตาราง attendance มีคอลัมน์ company_id
-        .gte('check_in', `${todayStr}T00:00:00`)
-        .lte('check_in', `${todayStr}T23:59:59`)
+        .eq('company_id', companyId)
+        .gte('check_in_time', startOfDay)
+        .lte('check_in_time', endOfDay)
+        
+      if (attendanceError) {
+          console.error("Error fetching attendance:", attendanceError)
+      }
 
       const presentCount = attendanceData ? attendanceData.length : 0
       const lateCount = attendanceData ? attendanceData.filter(a => a.status === 'late').length : 0
 
-      // 4. คนที่ลาวันนี้ (ได้รับอนุมัติแล้ว และช่วงวันตรงกับวันนี้)
       const { count: leaveCount } = await supabase
         .from('leaves')
         .select('*', { count: 'exact', head: true })
-        // .eq('company_id', companyId) // 💡 เปิดคอมเมนต์บรรทัดนี้ หากตาราง leaves มีคอลัมน์ company_id
+        .eq('company_id', companyId)
         .eq('status', 'approved')
         .lte('start_date', todayStr)
         .gte('end_date', todayStr)
 
-      // 5. ใบลารออนุมัติ
       const { count: pendingCount } = await supabase
         .from('leaves')
         .select('*', { count: 'exact', head: true })
-        // .eq('company_id', companyId) // 💡 เปิดคอมเมนต์บรรทัดนี้ หากตาราง leaves มีคอลัมน์ company_id
+        .eq('company_id', companyId)
         .eq('status', 'pending')
 
       setStats({
