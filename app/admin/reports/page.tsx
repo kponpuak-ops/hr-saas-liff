@@ -309,7 +309,7 @@ export default function ManagementReportPage() {
                   <Pie data={payrollPieData} innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
                     {payrollPieData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.fill} />)}
                   </Pie>
-                  <Tooltip formatter={(value: number) => `${formatMoney(value)} บาท`} />
+                  <Tooltip formatter={(value: any) => `${formatMoney(Number(value) || 0)} บาท`} />
                   <Legend verticalAlign="bottom" height={36} iconType="circle" />
                 </PieChart>
               </ResponsiveContainer>
