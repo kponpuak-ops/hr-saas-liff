@@ -7,6 +7,8 @@ import Link from 'next/link'
 
 export default function AttendanceHistoryPage() {
   const [history, setHistory] = useState<any[]>([])
+  const [holidays, setHolidays] = useState<string[]>([])
+  const [leaves, setLeaves] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   
   // State สำหรับตัวกรองเดือน (ค่าเริ่มต้นคือเดือนปัจจุบัน YYYY-MM)
@@ -23,12 +25,12 @@ export default function AttendanceHistoryPage() {
           const profile = await liff.getProfile()
           const { data: userData } = await supabase
             .from('users')
-            .select('id')
+            .select('id, company_id')
             .eq('line_user_id', profile.userId)
             .single()
 
           if (userData) {
-            fetchAttendanceHistory(userData.id)
+            fetchAttendanceHistory(userData)
           }
         } else {
           liff.login()
@@ -41,30 +43,63 @@ export default function AttendanceHistoryPage() {
     initLiff()
   }, [])
 
-  const fetchAttendanceHistory = async (userId: number) => {
-    const { data, error } = await supabase
-      .from('attendance')
-      .select('*, work_shifts(shift_name)')
-      .eq('user_id', userId)
-      .order('action_date', { ascending: false })
-      .order('created_at', { ascending: false })
+  const fetchAttendanceHistory = async (user: any) => {
+    const [attRes, holRes, leaveRes] = await Promise.all([
+      supabase.from('attendance').select('*, work_shifts(shift_name)').eq('user_id', user.id).order('action_date', { ascending: false }).order('created_at', { ascending: false }),
+      supabase.from('company_holidays').select('holiday_date').eq('company_id', user.company_id),
+      supabase.from('leaves').select('start_date, end_date').eq('user_id', user.id).eq('status', 'approved')
+    ])
 
-    if (data) setHistory(data)
+    if (attRes.data) setHistory(attRes.data)
+    if (holRes.data) setHolidays(holRes.data.map(h => h.holiday_date))
+    if (leaveRes.data) setLeaves(leaveRes.data)
+    
     setIsLoading(false)
   }
 
-  // กรองข้อมูลตามเดือนที่เลือก
+  // 1. กรองข้อมูลตามเดือนที่เลือก
   const filteredHistory = filterMonth 
     ? history.filter(item => item.action_date.startsWith(filterMonth))
     : history
 
-  // คำนวณยอดสรุปประจำเดือน
+  // 2. คำนวณยอดสรุปประจำเดือน (สาย, ออกก่อน, ยอดหัก)
   const summary = filteredHistory.reduce((acc, curr) => {
     acc.lateMins += (curr.late_minutes || 0)
     acc.earlyMins += (curr.early_leave_minutes || 0)
     acc.totalDeduction += (curr.deduction_amount || 0)
     return acc
   }, { lateMins: 0, earlyMins: 0, totalDeduction: 0 })
+
+  // 💡 3. คำนวณวันขาดงาน/ลืมสแกน (นับทุกวัน ไม่เว้นเสาร์-อาทิตย์ อิงตามวันหยุดบริษัทเท่านั้น)
+  let absentDaysCount = 0
+  if (filterMonth) {
+    const [year, month] = filterMonth.split('-').map(Number)
+    const startOfMonth = new Date(year, month - 1, 1)
+    const endOfMonth = new Date(year, month, 0)
+    const today = new Date()
+    
+    // หาวันที่สิ้นสุดการคำนวณ: ถ้าเป็นเดือนปัจจุบัน ให้นับถึงเมื่อวาน ถ้าเดือนอดีต ให้นับถึงวันสิ้นเดือน
+    const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1)
+    const calcEndDate = endOfMonth > yesterday ? yesterday : endOfMonth
+
+    for (let d = new Date(startOfMonth); d <= calcEndDate; d.setDate(d.getDate() + 1)) {
+      const dateStr = d.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' }) // รูปแบบ YYYY-MM-DD
+      
+      // ข้ามวันหยุดบริษัท (อิงตามที่ HR ตั้งค่าไว้ในระบบ)
+      const isHol = holidays.includes(dateStr)
+      
+      // ข้ามวันที่ลาผ่านแล้ว
+      const hasLeave = leaves.some(l => dateStr >= l.start_date && dateStr <= l.end_date)
+      
+      // ตรวจสอบว่ามีการลงเวลาในวันนั้นหรือไม่
+      const hasScanned = history.some(h => h.action_date === dateStr)
+
+      // ถ้าไม่ใช่วันหยุด ไม่ใช่วันลา และไม่มีข้อมูลสแกน = ขาดงาน (ไม่สนใจว่าเป็นวันอะไร)
+      if (!isHol && !hasLeave && !hasScanned) {
+        absentDaysCount++
+      }
+    }
+  }
 
   const formatTime = (timeStr: string | null) => {
     if (!timeStr) return '-'
@@ -102,26 +137,39 @@ export default function AttendanceHistoryPage() {
           />
         </div>
 
-        {/* สรุปยอดรายเดือน */}
+        {/* สรุปยอดรายเดือนแบบใหม่ 3 ช่อง */}
         <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 space-y-3">
           <h2 className="text-sm font-bold text-slate-800 mb-1">
-            📊 สรุปการมาสาย/หักเงิน (เดือนที่เลือก)
+            📊 สรุปการมาสาย/ขาดงาน (เดือนที่เลือก)
           </h2>
           
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-amber-50 p-3 rounded-xl border border-amber-100">
-              <div className="text-[10px] font-bold text-amber-600 mb-1">รวมเวลาสาย/ออกก่อน</div>
+              <div className="text-[10px] font-bold text-amber-600 mb-1">สาย/ออกก่อนรวม</div>
               <div className="text-xl font-extrabold text-amber-700">
                 {summary.lateMins + summary.earlyMins} <span className="text-xs font-bold">นาที</span>
               </div>
             </div>
-            <div className="bg-rose-50 p-3 rounded-xl border border-rose-100">
-              <div className="text-[10px] font-bold text-rose-600 mb-1">ยอดหักเงินสะสม</div>
+            
+            <div className="bg-slate-100 p-3 rounded-xl border border-slate-200">
+              <div className="text-[10px] font-bold text-slate-600 mb-1">ขาดงาน / ลืมสแกน</div>
+              <div className="text-xl font-extrabold text-slate-700">
+                {absentDaysCount} <span className="text-xs font-bold">วัน</span>
+              </div>
+            </div>
+
+            <div className="col-span-2 bg-rose-50 p-3 rounded-xl border border-rose-100 flex justify-between items-center">
+              <div className="text-[11px] font-bold text-rose-600">ยอดหักเงินสะสม (สาย/ออกก่อน)</div>
               <div className="text-xl font-extrabold text-rose-700">
                 {formatMoney(summary.totalDeduction)} <span className="text-xs font-bold">บาท</span>
               </div>
             </div>
           </div>
+          {absentDaysCount > 0 && (
+            <div className="text-[10px] text-rose-500 mt-1 bg-white">
+              * พบการขาดงาน {absentDaysCount} วัน หากลืมสแกนกรุณาติดต่อ HR
+            </div>
+          )}
         </div>
 
         {/* รายการประวัติ */}
