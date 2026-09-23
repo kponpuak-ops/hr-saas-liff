@@ -15,7 +15,6 @@ export default function PayrollDetailPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [isCalculating, setIsCalculating] = useState(false)
 
-  // State สำหรับดูสลิป
   const [selectedSlip, setSelectedSlip] = useState<any>(null)
   const [slipDetails, setSlipDetails] = useState<any[]>([])
   const [isFetchingSlip, setIsFetchingSlip] = useState(false)
@@ -55,8 +54,6 @@ export default function PayrollDetailPage() {
     const e = new Date(end)
     return Math.ceil(Math.abs(e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24)) + 1
   }
-
-  // 💡 ลบ calculateLatePenalty ทิ้งไปแล้ว เพราะดึงจาก Database แทน
 
   const timeToMins = (t: string) => {
     if (!t) return 0;
@@ -157,6 +154,37 @@ export default function PayrollDetailPage() {
         .gte('start_date', `${cycleYear}-01-01`)
         .lte('start_date', `${cycleYear}-12-31`)
 
+      const { data: prevCycle } = await supabase
+        .from('payroll_cycles')
+        .select('id')
+        .eq('company_id', cycle.company_id)
+        .lt('start_date', cycle.start_date)
+        .order('start_date', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      let prevDiligenceData: any[] = []
+      if (prevCycle) {
+        const { data: prevSlips } = await supabase
+          .from('payslips')
+          .select('id, user_id')
+          .eq('payroll_cycle_id', prevCycle.id)
+
+        if (prevSlips && prevSlips.length > 0) {
+          const prevSlipIds = prevSlips.map(s => s.id)
+          const { data: prevDetails } = await supabase
+            .from('payslip_details')
+            .select('payslip_id, item_name, amount')
+            .in('payslip_id', prevSlipIds)
+            .like('item_name', 'เบี้ยขยัน%')
+          
+          prevDiligenceData = prevSlips.map(slip => {
+             const detail = prevDetails?.find(d => d.payslip_id === slip.id)
+             return { user_id: slip.user_id, hasDiligence: !!detail, amount: detail?.amount || 0 }
+          })
+        }
+      }
+
       for (const emp of employees) {
         const baseSalary = emp.base_salary || 0
         const dailyRate = emp.daily_rate || (baseSalary / 30)
@@ -164,7 +192,7 @@ export default function PayrollDetailPage() {
 
         const empAttendances = attendances?.filter(att => att.user_id === emp.id) || []
         
-        // -- ตรวจสอบวันขาดงาน (Absent Check) --
+        // 1. ตรวจสอบวันขาดงาน
         let absentDays = 0
         let currentDate = new Date(cycle.start_date)
         const endDate = new Date(cycle.end_date)
@@ -183,10 +211,64 @@ export default function PayrollDetailPage() {
           }
           currentDate.setDate(currentDate.getDate() + 1)
         }
-        
         const absentDeduction = absentDays * dailyRate
 
-        // -- คำนวณ OT --
+        // 2. คำนวณหักมาสาย และ ออกก่อนเวลา
+        let attendanceDeductionTotal = 0
+        let totalLateMins = 0
+        let totalEarlyMins = 0
+        
+        empAttendances.forEach(att => {
+          totalLateMins += att.late_minutes || 0
+          totalEarlyMins += att.early_leave_minutes || 0
+          attendanceDeductionTotal += att.deduction_amount || 0
+        })
+
+        // 💡 3. คำนวณวันลา (ย้ายขึ้นมาเพื่อเช็กก่อนว่าลานี้หักเบี้ยขยันไหม)
+        const empAllLeaves = allApprovedLeaves?.filter(l => l.user_id === emp.id) || []
+        const leavesInCycle = empAllLeaves.filter(l => l.start_date >= cycle.start_date && l.start_date <= cycle.end_date)
+        const leavesBeforeCycle = empAllLeaves.filter(l => l.start_date < cycle.start_date)
+
+        let leaveDaysToDeduct = 0
+        let leaveDeductionDetails: any[] = []
+        const usageBefore: Record<string, number> = {}
+        
+        let hasDeductibleLeave = false // เก็บสถานะว่ามีการลาที่หักเบี้ยขยันหรือไม่
+
+        leavesBeforeCycle.forEach(l => {
+           usageBefore[l.leave_type] = (usageBefore[l.leave_type] || 0) + calculateDays(l.start_date, l.end_date)
+        })
+
+        leavesInCycle.forEach(l => { 
+          const days = calculateDays(l.start_date, l.end_date)
+          const leaveSetting = leaveTypesData?.find(lt => lt.name === l.leave_type)
+          if (!leaveSetting) return;
+
+          // 💡 เช็คว่าการลานี้หักเบี้ยขยันหรือไม่ (ถ้าตั้งค่าเป็น true หรือไม่ได้ตั้งค่าไว้ ถือว่าหัก)
+          if (leaveSetting.deduct_diligence !== false) {
+             hasDeductibleLeave = true
+          }
+
+          if (leaveSetting.is_paid_for_monthly === false) {
+            leaveDaysToDeduct += days
+            leaveDeductionDetails.push({ name: l.leave_type, days: days, amount: days * dailyRate })
+          } else {
+            const maxDays = leaveSetting.max_paid_days || 0
+            if (maxDays < 999) {
+                const usedBefore = usageBefore[l.leave_type] || 0
+                usageBefore[l.leave_type] = usedBefore + days
+
+                if (usedBefore + days > maxDays) {
+                    const excessDays = usedBefore >= maxDays ? days : (usedBefore + days - maxDays)
+                    leaveDaysToDeduct += excessDays
+                    leaveDeductionDetails.push({ name: `${l.leave_type} (เกินสิทธิ์)`, days: excessDays, amount: excessDays * dailyRate })
+                }
+            }
+          }
+        })
+        const leaveDeductions = leaveDaysToDeduct * dailyRate
+
+        // 4. คำนวณ OT
         const empOts = approvedOts?.filter(ot => ot.user_id === emp.id) || []
         let otHoursNormal = 0
         let otHoursHolidayWork = 0
@@ -208,82 +290,76 @@ export default function PayrollDetailPage() {
         const otEarningsHolidayWork = otHoursHolidayWork * hourlyRate * otRateHolidayWork
         const otEarningsHolidayOt = otHoursHolidayOt * hourlyRate * otRateHolidayOt
         
-        // -- คำนวณสวัสดิการ --
+        // 5. คำนวณสวัสดิการ และ เบี้ยขยัน
         let totalBenefitAmount = 0;
         let benefitDetails: any[] = [];
         
         if (emp.benefits && Array.isArray(emp.benefits)) {
             emp.benefits.forEach((benefit: any) => {
                 const amt = Number(benefit.amount) || 0;
-                if (amt > 0) {
+                if (amt > 0 && benefit.name !== 'เบี้ยขยัน') {
                     totalBenefitAmount += amt;
                     benefitDetails.push({ name: benefit.name, amount: amt });
                 }
             });
         }
 
-        const totalEarnings = otEarningsNormal + otEarningsHolidayWork + otEarningsHolidayOt + totalBenefitAmount;
+        // 💡 [ฟีเจอร์ PRO]: ดึงแพ็กเกจบริษัทมาเช็กสิทธิ์ก่อนรันคำนวณเบี้ยขยันอัตโนมัติ
+        const { data: compData } = await supabase
+          .from('companies')
+          .select('package_tier')
+          .eq('id', cycle.company_id)
+          .single()
+          
+        const currentPackage = compData?.package_tier ? compData.package_tier.replace(/"/g, '').toLowerCase() : 'free'
+        const isProPackage = ['trial', 'pro'].includes(currentPackage);
 
-        // 💡 -- คำนวณหักมาสาย และ ออกก่อนเวลา (ดึงจาก Database ตรงๆ) --
-        let attendanceDeductionTotal = 0
-        let totalLateMins = 0
-        let totalEarlyMins = 0
-        
-        empAttendances.forEach(att => {
-          totalLateMins += att.late_minutes || 0
-          totalEarlyMins += att.early_leave_minutes || 0
-          attendanceDeductionTotal += att.deduction_amount || 0
-        })
+        if (isProPackage) {
+          const diligenceSteps = settings?.diligence_steps || [500, 800, 1000];
+          const prevRecord = prevDiligenceData.find(p => p.user_id === emp.id);
+          let prevStepIndex = -1;
 
-        // -- คำนวณวันลา --
-        const empAllLeaves = allApprovedLeaves?.filter(l => l.user_id === emp.id) || []
-        const leavesInCycle = empAllLeaves.filter(l => l.start_date >= cycle.start_date && l.start_date <= cycle.end_date)
-        const leavesBeforeCycle = empAllLeaves.filter(l => l.start_date < cycle.start_date)
-
-        let leaveDaysToDeduct = 0
-        let leaveDeductionDetails: any[] = []
-        const usageBefore: Record<string, number> = {}
-        
-        leavesBeforeCycle.forEach(l => {
-           usageBefore[l.leave_type] = (usageBefore[l.leave_type] || 0) + calculateDays(l.start_date, l.end_date)
-        })
-
-        leavesInCycle.forEach(l => { 
-          const days = calculateDays(l.start_date, l.end_date)
-          const leaveSetting = leaveTypesData?.find(lt => lt.name === l.leave_type)
-          if (!leaveSetting) return;
-
-          if (leaveSetting.is_paid_for_monthly === false) {
-            leaveDaysToDeduct += days
-            leaveDeductionDetails.push({ name: l.leave_type, days: days, amount: days * dailyRate })
-          } else {
-            const maxDays = leaveSetting.max_paid_days || 0
-            if (maxDays < 999) {
-                const usedBefore = usageBefore[l.leave_type] || 0
-                usageBefore[l.leave_type] = usedBefore + days
-
-                if (usedBefore + days > maxDays) {
-                    const excessDays = usedBefore >= maxDays ? days : (usedBefore + days - maxDays)
-                    leaveDaysToDeduct += excessDays
-                    leaveDeductionDetails.push({ name: `${l.leave_type} (เกินสิทธิ์)`, days: excessDays, amount: excessDays * dailyRate })
+          if (prevRecord && prevRecord.hasDiligence) {
+            prevStepIndex = diligenceSteps.indexOf(prevRecord.amount);
+            if (prevStepIndex === -1 && prevRecord.amount > 0) {
+              for (let i = diligenceSteps.length - 1; i >= 0; i--) {
+                if (prevRecord.amount >= diligenceSteps[i]) {
+                  prevStepIndex = i;
+                  break;
                 }
+              }
             }
           }
-        })
-        const leaveDeductions = leaveDaysToDeduct * dailyRate
 
-        // -- คำนวณประกันสังคม --
+          // เงื่อนไขครบถ้วน: ไม่ขาด, ไม่สาย, และไม่มีการลาที่หักเบี้ยขยัน
+          if (absentDays === 0 && totalLateMins === 0 && totalEarlyMins === 0 && !hasDeductibleLeave) {
+            let nextStepIndex = prevStepIndex + 1;
+            if (nextStepIndex >= diligenceSteps.length) {
+              nextStepIndex = diligenceSteps.length - 1;
+            }
+            
+            const diligenceAllowance = diligenceSteps[nextStepIndex];
+            totalBenefitAmount += diligenceAllowance;
+            benefitDetails.push({ name: `เบี้ยขยัน (ขั้นที่ ${nextStepIndex + 1})`, amount: diligenceAllowance });
+          } else {
+            benefitDetails.push({ name: `เบี้ยขยัน (ไม่ผ่านเงื่อนไข)`, amount: 0 });
+          }
+        }
+
+        const totalEarnings = otEarningsNormal + otEarningsHolidayWork + otEarningsHolidayOt + totalBenefitAmount;
+
+        // 6. คำนวณประกันสังคม
         let ssoDeduction = 0
         if (ssEnabled) {
           const ssoBase = baseSalary > ssMax ? ssMax : (baseSalary < ssMin ? 0 : baseSalary)
           ssoDeduction = ssoBase > 0 ? (ssoBase * ssRate) : 0
         }
 
-        // 💡 -- สรุปยอดสุทธิ (นำ attendanceDeductionTotal มาหักแทนของเก่า) --
+        // 7. สรุปยอดสุทธิ
         const totalDeductions = leaveDeductions + ssoDeduction + attendanceDeductionTotal + absentDeduction
         const netPay = baseSalary + totalEarnings - totalDeductions
 
-        // 7. บันทึก/อัปเดตลงตาราง payslips
+        // 8. บันทึก/อัปเดตลงตาราง payslips
         const existingSlip = payslips.find(p => p.user_id === emp.id)
         let slipId = existingSlip?.id
 
@@ -308,7 +384,7 @@ export default function PayrollDetailPage() {
           if (newSlip) slipId = newSlip.id
         }
 
-        // 8. บันทึกรายละเอียดสลิปย่อย (payslip_details)
+        // 9. บันทึกรายละเอียดสลิปย่อย (payslip_details)
         if (slipId) {
           await supabase.from('payslip_details').delete().eq('payslip_id', slipId)
           
@@ -325,7 +401,6 @@ export default function PayrollDetailPage() {
             details.push({ payslip_id: slipId, type: 'deduction', item_name: `หัก${ld.name} ${ld.days} วัน`, amount: ld.amount })
           })
 
-          // 💡 แสดงรายการหักจากการตอกบัตรแบบแจกแจง
           if (attendanceDeductionTotal > 0) {
             let desc = 'หักเวลาทำงาน'
             if (totalLateMins > 0 && totalEarlyMins > 0) desc = `หักเข้าสาย ${totalLateMins} นาที / ออกก่อน ${totalEarlyMins} นาที`

@@ -6,7 +6,8 @@ import { supabase } from '../../lib/supabase'
 export default function SettingsPage() {
     const [activeTab, setActiveTab] = useState<'work_hours' | 'holidays' | 'structure' | 'leave_types'>('work_hours')
     const [isLoading, setIsLoading] = useState<boolean>(true)
-    
+    const [diligenceSteps, setDiligenceSteps] = useState<number[]>([500, 800, 1000])
+
     // --- State สำหรับ Multi-tenant และสิทธิ์ ---
     const [companyId, setCompanyId] = useState<number | null>(null)
     const [companyPackage, setCompanyPackage] = useState<string>('free')
@@ -33,11 +34,11 @@ export default function SettingsPage() {
     const [locationLng, setLocationLng] = useState<string>('')
     const [locationRadius, setLocationRadius] = useState<number>(100)
     const [requirePhoto, setRequirePhoto] = useState<boolean>(false)
-    
+
     const [otRateNormal, setOtRateNormal] = useState<number>(1.5)
     const [otRateHolidayWork, setOtRateHolidayWork] = useState<number>(2.0)
     const [otRateHolidayOt, setOtRateHolidayOt] = useState<number>(3.0)
-    
+
     const [isSavingSettings, setIsSavingSettings] = useState(false)
 
     const [newShift, setNewShift] = useState({
@@ -72,7 +73,7 @@ export default function SettingsPage() {
 
     const fetchInitialData = async () => {
         setIsLoading(true)
-        
+
         // 1. ตรวจสอบผู้ใช้ปัจจุบัน
         const { data: { session } } = await supabase.auth.getSession()
         if (!session) return
@@ -83,7 +84,7 @@ export default function SettingsPage() {
             .select('company_id')
             .eq('auth_id', session.user.id)
             .single()
-            
+
         if (!userData?.company_id) return
         const cId = userData.company_id
         setCompanyId(cId)
@@ -94,7 +95,7 @@ export default function SettingsPage() {
             .select('package_tier')
             .eq('id', cId)
             .single()
-            
+
         if (compData && compData.package_tier) {
             const cleanPackage = compData.package_tier.replace(/"/g, '').toLowerCase()
             setCompanyPackage(cleanPackage)
@@ -130,7 +131,7 @@ export default function SettingsPage() {
             setDefaultEndTime(data.default_end_time?.substring(0, 5) || '17:30')
             setLateBufferMinutes(data.late_buffer_minutes || 0)
             setLateDeduction(data.late_deduction_per_minute || 0)
-            
+
             // GPS & Photo states
             setLocationLat(data.location_lat?.toString() || '')
             setLocationLng(data.location_lng?.toString() || '')
@@ -145,6 +146,7 @@ export default function SettingsPage() {
             setSsEmployerRate(data.ss_employer_rate ?? 5.0)
             setSsMinSalary(data.ss_min_salary ?? 1650)
             setSsMaxSalary(data.ss_max_salary ?? 15000)
+            setDiligenceSteps(data.diligence_steps || [500, 800, 1000])
         }
     }
 
@@ -167,7 +169,7 @@ export default function SettingsPage() {
     const handleSaveWorkSettings = async () => {
         if (!companyId) return
         setIsSavingSettings(true)
-        
+
         const { error } = await supabase.from('company_settings').upsert({
             company_id: companyId,
             approval_workflow: approvalWorkflow,
@@ -176,7 +178,8 @@ export default function SettingsPage() {
             default_end_time: defaultEndTime,
             late_buffer_minutes: lateBufferMinutes,
             late_deduction_per_minute: lateDeduction,
-            
+            diligence_steps: diligenceSteps,
+
             // บันทึกค่า GPS & Photo
             location_lat: locationLat ? parseFloat(locationLat) : null,
             location_lng: locationLng ? parseFloat(locationLng) : null,
@@ -321,7 +324,7 @@ export default function SettingsPage() {
             {/* TABS 1: เวลาทำงาน, อนุมัติ, OT & ประกันสังคม */}
             {activeTab === 'work_hours' && (
                 <div className="space-y-6 animate-fade-in">
-                    
+
                     {/* 📋 กล่องตั้งค่าสายการอนุมัติ */}
                     <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
                         <h2 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
@@ -340,7 +343,7 @@ export default function SettingsPage() {
                                 <input type="radio" checked={approvalWorkflow === 'manager_approval'} onChange={() => isPro && setApprovalWorkflow('manager_approval')} disabled={!isPro} className="mt-1 accent-indigo-600 disabled:opacity-50" />
                                 <div>
                                     <div className="font-bold text-slate-800 text-sm flex items-center gap-2">
-                                        อนุมัติตามสายงาน (Manager Approval) 
+                                        อนุมัติตามสายงาน (Manager Approval)
                                         {!isPro && <span className="bg-amber-500 text-white text-[10px] px-1.5 py-0.5 rounded">PRO</span>}
                                     </div>
                                     <div className="text-xs text-slate-500 mt-0.5">ส่งคำขอให้หัวหน้าแผนกตรวจสอบและอนุมัติผ่าน LINE ได้ทันที</div>
@@ -384,7 +387,7 @@ export default function SettingsPage() {
                                 />
                                 <div>
                                     <div className="font-bold text-slate-800 text-sm flex items-center gap-2">
-                                        มีกะการทำงาน (Multi-Shift) 
+                                        มีกะการทำงาน (Multi-Shift)
                                         {!isPro && <span className="bg-amber-500 text-white text-[10px] px-1.5 py-0.5 rounded">PRO</span>}
                                     </div>
                                     <div className="text-xs text-slate-500 mt-0.5">มีหลายกะเวลา เช่น กะเช้า, กะบ่าย, กะดึก เหมาะกับโรงงานหรือร้านค้า</div>
@@ -529,6 +532,63 @@ export default function SettingsPage() {
                         )}
                     </div>
 
+                   {/* 🏆 กล่องตั้งค่าเบี้ยขยันแบบขั้นบันได (Dynamic) - ล็อกสำหรับ PRO */}
+                    <div className={`p-6 rounded-2xl border transition-all mt-6 ${!isPro ? 'bg-slate-50 border-slate-200 opacity-80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                        <div className="flex justify-between items-start mb-4">
+                            <div>
+                                <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                                    🏆 ตั้งค่าเบี้ยขยันแบบขั้นบันได (Diligence Allowance)
+                                    {!isPro && <span className="bg-amber-500 text-white text-[10px] px-1.5 py-0.5 rounded shadow-sm">PRO</span>}
+                                </h2>
+                                <p className="text-xs text-slate-500 mt-1">กำหนดเงินรางวัลสำหรับพนักงานที่ไม่ขาด ลา สาย ระบบจะเลื่อนขั้นให้อัตโนมัติในเดือนถัดไป สูงสุดถึงขั้นสุดท้ายที่กำหนด</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => isPro && setDiligenceSteps([...diligenceSteps, 0])}
+                                disabled={!isPro}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors border ${!isPro ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border-indigo-200'}`}
+                            >
+                                ➕ เพิ่มขั้น
+                            </button>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                            {diligenceSteps.map((amount, index) => (
+                                <div key={index} className="bg-emerald-50/50 p-4 rounded-xl border border-emerald-100 relative group">
+                                    <div className="flex justify-between items-center mb-1">
+                                        <label className="text-xs font-bold text-emerald-900">
+                                            เดือนที่ {index + 1} {index === diligenceSteps.length - 1 ? '(สูงสุด)' : ''}
+                                        </label>
+                                        {diligenceSteps.length > 1 && isPro && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setDiligenceSteps(diligenceSteps.filter((_, i) => i !== index))}
+                                                className="text-rose-400 hover:text-rose-600 text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity"
+                                            >
+                                                ✕ ลบ
+                                            </button>
+                                        )}
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <input 
+                                            type="number" 
+                                            min="0" 
+                                            disabled={!isPro}
+                                            className="w-full p-2.5 border border-emerald-300 rounded-lg text-sm bg-white font-bold text-emerald-700 focus:ring-2 focus:ring-emerald-500 outline-none disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed disabled:border-slate-300" 
+                                            value={amount}
+                                            onChange={(e) => {
+                                                const newSteps = [...diligenceSteps]
+                                                newSteps[index] = Number(e.target.value)
+                                                setDiligenceSteps(newSteps)
+                                            }}
+                                        />
+                                        <span className={`text-xs font-bold ${!isPro ? 'text-slate-400' : 'text-emerald-700'}`}>฿</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
                     {/* 📍 กล่องตั้งค่าความปลอดภัย GPS & Selfie */}
                     <div className={`p-6 rounded-2xl border transition-all ${!isPro ? 'bg-slate-50 border-slate-200 opacity-80' : 'bg-white border-slate-200 shadow-sm'}`}>
                         <div className="flex items-center justify-between mb-4">
@@ -537,13 +597,13 @@ export default function SettingsPage() {
                                 {!isPro && <span className="bg-amber-500 text-white text-[10px] px-1.5 py-0.5 rounded shadow-sm">PRO</span>}
                             </h2>
                         </div>
-                        
+
                         <div className="space-y-6">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div>
                                     <label className="block text-sm font-bold text-slate-700 mb-2">ละติจูด (Latitude)</label>
-                                    <input 
-                                        type="number" 
+                                    <input
+                                        type="number"
                                         step="any"
                                         placeholder="เช่น 13.7563"
                                         value={locationLat}
@@ -554,8 +614,8 @@ export default function SettingsPage() {
                                 </div>
                                 <div>
                                     <label className="block text-sm font-bold text-slate-700 mb-2">ลองจิจูด (Longitude)</label>
-                                    <input 
-                                        type="number" 
+                                    <input
+                                        type="number"
                                         step="any"
                                         placeholder="เช่น 100.5018"
                                         value={locationLng}
@@ -565,12 +625,12 @@ export default function SettingsPage() {
                                     />
                                 </div>
                             </div>
-                            
+
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div>
                                     <label className="block text-sm font-bold text-slate-700 mb-2">รัศมีที่อนุญาตให้ลงเวลา (เมตร)</label>
-                                    <input 
-                                        type="number" 
+                                    <input
+                                        type="number"
                                         value={locationRadius}
                                         onChange={(e) => setLocationRadius(parseInt(e.target.value) || 0)}
                                         disabled={!isPro}
@@ -580,12 +640,12 @@ export default function SettingsPage() {
                                 <div>
                                     <label className="block text-sm font-bold text-slate-700 mb-2">การยืนยันตัวตน</label>
                                     <label className={`flex items-center gap-3 mt-3 p-3 rounded-lg border ${!isPro ? 'bg-slate-100 border-slate-200 cursor-not-allowed' : 'bg-slate-50 border-slate-200 cursor-pointer'}`}>
-                                        <input 
-                                            type="checkbox" 
+                                        <input
+                                            type="checkbox"
                                             checked={requirePhoto}
                                             onChange={(e) => setRequirePhoto(e.target.checked)}
                                             disabled={!isPro}
-                                            className="w-5 h-5 accent-indigo-600 disabled:cursor-not-allowed disabled:opacity-50" 
+                                            className="w-5 h-5 accent-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
                                         />
                                         <span className={`text-sm font-bold ${!isPro ? 'text-slate-400' : 'text-slate-700'}`}>📸 บังคับถ่ายรูปเซลฟี่ก่อนลงเวลา</span>
                                     </label>
@@ -599,41 +659,41 @@ export default function SettingsPage() {
                             💰 อัตราค่าล่วงเวลา (OT)
                         </h2>
                         <p className="text-xs text-slate-500 mb-4">กำหนดตัวคูณอัตราค่าจ้างต่อชั่วโมงสำหรับการทำงานล่วงเวลา (อ้างอิงตามกฎหมายแรงงาน)</p>
-                        
+
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
                                 <label className="block text-xs font-bold text-indigo-900 mb-1">OT วันทำงานปกติ (เท่า)</label>
-                                <input 
-                                    type="number" 
-                                    step="0.5" 
-                                    min="0" 
-                                    className="w-full p-2.5 border border-slate-300 rounded-lg text-sm bg-white font-bold text-indigo-700 focus:ring-2 focus:ring-indigo-500 outline-none" 
-                                    value={otRateNormal} 
-                                    onChange={(e) => setOtRateNormal(Number(e.target.value))} 
+                                <input
+                                    type="number"
+                                    step="0.5"
+                                    min="0"
+                                    className="w-full p-2.5 border border-slate-300 rounded-lg text-sm bg-white font-bold text-indigo-700 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                    value={otRateNormal}
+                                    onChange={(e) => setOtRateNormal(Number(e.target.value))}
                                 />
                                 <span className="text-[11px] text-slate-500 mt-2 block">ทำหลังเวลาเลิกงานปกติ (มาตรฐาน 1.5 เท่า)</span>
                             </div>
                             <div className="bg-emerald-50/50 p-4 rounded-xl border border-emerald-100">
                                 <label className="block text-xs font-bold text-emerald-900 mb-1">ทำงานในวันหยุด (เท่า)</label>
-                                <input 
-                                    type="number" 
-                                    step="0.5" 
-                                    min="0" 
-                                    className="w-full p-2.5 border border-emerald-300 rounded-lg text-sm bg-white font-bold text-emerald-700 focus:ring-2 focus:ring-emerald-500 outline-none" 
-                                    value={otRateHolidayWork} 
-                                    onChange={(e) => setOtRateHolidayWork(Number(e.target.value))} 
+                                <input
+                                    type="number"
+                                    step="0.5"
+                                    min="0"
+                                    className="w-full p-2.5 border border-emerald-300 rounded-lg text-sm bg-white font-bold text-emerald-700 focus:ring-2 focus:ring-emerald-500 outline-none"
+                                    value={otRateHolidayWork}
+                                    onChange={(e) => setOtRateHolidayWork(Number(e.target.value))}
                                 />
                                 <span className="text-[11px] text-slate-500 mt-2 block">ทำในเวลาปกติของวันหยุด (มาตรฐาน 1.0 หรือ 2.0 เท่า)</span>
                             </div>
                             <div className="bg-rose-50/50 p-4 rounded-xl border border-rose-100">
                                 <label className="block text-xs font-bold text-rose-900 mb-1">OT วันหยุด (เท่า)</label>
-                                <input 
-                                    type="number" 
-                                    step="0.5" 
-                                    min="0" 
-                                    className="w-full p-2.5 border border-rose-300 rounded-lg text-sm bg-white font-bold text-rose-700 focus:ring-2 focus:ring-rose-500 outline-none" 
-                                    value={otRateHolidayOt} 
-                                    onChange={(e) => setOtRateHolidayOt(Number(e.target.value))} 
+                                <input
+                                    type="number"
+                                    step="0.5"
+                                    min="0"
+                                    className="w-full p-2.5 border border-rose-300 rounded-lg text-sm bg-white font-bold text-rose-700 focus:ring-2 focus:ring-rose-500 outline-none"
+                                    value={otRateHolidayOt}
+                                    onChange={(e) => setOtRateHolidayOt(Number(e.target.value))}
                                 />
                                 <span className="text-[11px] text-slate-500 mt-2 block">ทำหลังเวลาเลิกงานในวันหยุด (มาตรฐาน 3.0 เท่า)</span>
                             </div>
@@ -718,18 +778,80 @@ export default function SettingsPage() {
                     </div>
                 </div>
             )}
-            
+
             {/* TABS 2: ปฏิทินวันหยุดองค์กร */}
             {activeTab === 'holidays' && (
                 <div className="space-y-6 animate-fade-in">
                     <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-                        <h2 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
-                            📅 เพิ่มวันหยุดในปฏิทินบริษัท
-                        </h2>
+                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+                            <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                                📅 วันหยุดในปฏิทินบริษัท (Company Holidays)
+                            </h2>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => {
+                                        if (!isPro) {
+                                            alert('ฟีเจอร์นี้สงวนไว้สำหรับแพ็กเกจ Pro หรือ Trial เท่านั้น กรุณาอัปเกรดแพ็กเกจเพื่อใช้งาน');
+                                            return;
+                                        }
+                                        const year = prompt('ระบุปี ค.ศ. ที่ต้องการสร้างวันหยุดอัตโนมัติ (เช่น 2026):', new Date().getFullYear().toString());
+                                        if (!year || !companyId) return;
+
+                                        const pattern = prompt('เลือกรูปแบบวันหยุดประจำสัปดาห์ (พิมพ์ตัวเลข):\n1 = หยุดทุกวันอาทิตย์\n2 = หยุดเสาร์-อาทิตย์\n3 = หยุดอาทิตย์ และ เสาร์เว้นเสาร์', '2');
+                                        if (!pattern) return;
+
+                                        setIsSavingSettings(true);
+                                        let newHolidays = [];
+                                        const startDate = new Date(parseInt(year), 0, 1);
+                                        const endDate = new Date(parseInt(year), 11, 31);
+
+                                        let saturdayCount = 0;
+
+                                        for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+                                            const dayOfWeek = d.getDay();
+                                            const dateStr = d.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+
+                                            if (dayOfWeek === 0) { // วันอาทิตย์
+                                                newHolidays.push({ company_id: companyId, holiday_date: dateStr, name: 'วันอาทิตย์', type: 'weekly' });
+                                            } else if (dayOfWeek === 6) { // วันเสาร์
+                                                saturdayCount++;
+                                                if (pattern === '2') {
+                                                    newHolidays.push({ company_id: companyId, holiday_date: dateStr, name: 'วันเสาร์', type: 'weekly' });
+                                                } else if (pattern === '3' && saturdayCount % 2 !== 0) {
+                                                    // เสาร์เว้นเสาร์ (ให้หยุดเสาร์ที่เป็นเลขคี่)
+                                                    newHolidays.push({ company_id: companyId, holiday_date: dateStr, name: 'เสาร์เว้นเสาร์', type: 'weekly' });
+                                                }
+                                            }
+                                        }
+
+                                        if (newHolidays.length > 0) {
+                                            supabase.from('company_holidays').insert(newHolidays).then(({ error }) => {
+                                                setIsSavingSettings(false);
+                                                if (error) alert('เกิดข้อผิดพลาด: ' + error.message);
+                                                else {
+                                                    alert(`สร้างวันหยุดประจำสัปดาห์สำหรับปี ${year} เรียบร้อยแล้ว (${newHolidays.length} วัน)`);
+                                                    fetchHolidays(companyId);
+                                                }
+                                            });
+                                        } else {
+                                            setIsSavingSettings(false);
+                                        }
+                                    }}
+                                    disabled={isSavingSettings || !isPro}
+                                    className={`px-4 py-2 font-bold rounded-lg text-xs shadow-sm transition-colors border flex items-center gap-2 ${isPro
+                                            ? 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200'
+                                            : 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                                        }`}
+                                >
+                                    ⚡ สร้างวันหยุดสุดสัปดาห์ตลอดปี
+                                    {!isPro && <span className="bg-amber-500 text-white text-[9px] px-1.5 py-0.5 rounded uppercase">PRO</span>}
+                                </button>
+                            </div>
+                        </div>
 
                         <form onSubmit={handleAddHoliday} className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end mb-6 bg-slate-50 p-4 rounded-xl border border-slate-200">
                             <div>
-                                <label className="block text-xs font-semibold text-slate-600 mb-1">วันที่หยุด *</label>
+                                <label className="block text-xs font-semibold text-slate-600 mb-1">เพิ่มวันที่หยุด *</label>
                                 <input
                                     type="date"
                                     required
@@ -742,7 +864,7 @@ export default function SettingsPage() {
                                 <label className="block text-xs font-semibold text-slate-600 mb-1">ชื่อวันหยุด / รายละเอียด *</label>
                                 <input
                                     type="text"
-                                    placeholder="เช่น วันสงกรานต์ / วันหยุดบริษัท"
+                                    placeholder="เช่น วันสงกรานต์"
                                     required
                                     className="w-full p-2.5 border border-slate-300 rounded-lg text-sm bg-white outline-none focus:ring-2 focus:ring-indigo-500"
                                     value={newHoliday.name}
@@ -772,34 +894,35 @@ export default function SettingsPage() {
                         </form>
 
                         <h3 className="font-bold text-sm text-slate-800 mb-3">รายการวันหยุดทั้งหมดในระบบ</h3>
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-left border-collapse">
-                                <thead>
+                        <div className="overflow-x-auto max-h-[60vh]">
+                            <table className="w-full text-left border-collapse relative">
+                                <thead className="sticky top-0 bg-white shadow-sm z-10">
                                     <tr className="border-b border-slate-200 text-xs font-bold text-slate-500 uppercase">
-                                        <th className="pb-3">วันที่</th>
-                                        <th className="pb-3">ชื่อวันหยุด</th>
-                                        <th className="pb-3">ประเภทวันหยุด</th>
-                                        <th className="pb-3 text-right">จัดการ</th>
+                                        <th className="py-3 px-2">วันที่</th>
+                                        <th className="py-3 px-2">ชื่อวันหยุด</th>
+                                        <th className="py-3 px-2">ประเภทวันหยุด</th>
+                                        <th className="py-3 px-2 text-right">จัดการ</th>
+                                        <th className="pb-3 font-medium text-center">หักเบี้ยขยัน?</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 text-sm">
                                     {holidays.map((h) => (
                                         <tr key={h.id} className="hover:bg-slate-50">
-                                            <td className="py-3 font-semibold text-slate-800">
-                                                {new Date(h.holiday_date).toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}
+                                            <td className="py-2.5 px-2 font-semibold text-slate-800">
+                                                {new Date(h.holiday_date).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric', weekday: 'short' })}
                                             </td>
-                                            <td className="py-3 font-medium text-slate-700">{h.name}</td>
-                                            <td className="py-3">
-                                                {h.type === 'weekly' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-700">วันหยุดประจำสัปดาห์</span>}
-                                                {h.type === 'traditional' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-purple-100 text-purple-700">วันหยุดประเพณี</span>}
-                                                {h.type === 'company' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-700">วันหยุดพิเศษบริษัท</span>}
+                                            <td className="py-2.5 px-2 font-medium text-slate-700">{h.name}</td>
+                                            <td className="py-2.5 px-2">
+                                                {h.type === 'weekly' && <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700">วันหยุดประจำสัปดาห์</span>}
+                                                {h.type === 'traditional' && <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-purple-100 text-purple-700">วันหยุดประเพณี</span>}
+                                                {h.type === 'company' && <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700">วันหยุดพิเศษบริษัท</span>}
                                             </td>
-                                            <td className="py-3 text-right">
+                                            <td className="py-2.5 px-2 text-right">
                                                 <button
                                                     onClick={() => handleDeleteHoliday(h.id)}
-                                                    className="text-rose-500 hover:text-rose-700 text-xs font-bold p-1"
+                                                    className="text-rose-500 hover:text-rose-700 text-xs font-bold px-2 py-1 bg-white border border-rose-100 rounded shadow-sm"
                                                 >
-                                                    🗑️ ลบ
+                                                    ลบ
                                                 </button>
                                             </td>
                                         </tr>
@@ -902,7 +1025,7 @@ export default function SettingsPage() {
                 </div>
             )}
 
-            {/* TABS 4: จัดการประเภทการลา */}
+           {/* TABS 4: จัดการประเภทการลา */}
             {activeTab === 'leave_types' && (
                 <div className="space-y-6 animate-fade-in">
                     <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
@@ -910,73 +1033,82 @@ export default function SettingsPage() {
                             📝 กำหนดสิทธิ์และประเภทการลา
                         </h2>
                         <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse">
-                            <thead>
-                            <tr className="border-b border-slate-200 text-sm text-slate-500">
-                                <th className="pb-3 font-medium">ประเภทการลา</th>
-                                <th className="pb-3 font-medium text-center">สิทธิ์รับค่าจ้าง (วัน/ปี)</th>
-                                <th className="pb-3 font-medium text-center">รายเดือนได้เงิน?</th>
-                                <th className="pb-3 font-medium text-center">รายวันได้เงิน?</th>
-                                <th className="pb-3 font-medium text-center">ทดลองงานลาได้?</th>
-                            </tr>
-                            </thead>
-                            <tbody>
-                            {leaveTypes.map((item) => (
-                                <tr key={item.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
-                                <td className="py-4 font-bold text-slate-800">
-                                    {item.name}
-                                </td>
-                                <td className="py-4 text-center">
-                                    <div className="flex items-center justify-center gap-2">
-                                    <input 
-                                        type="number"
-                                        min="0"
-                                        defaultValue={item.max_paid_days}
-                                        onBlur={(e) => handleUpdateLeaveDays(item.id, Number(e.target.value))}
-                                        className="w-20 text-center p-1.5 border border-slate-300 rounded-lg text-sm font-bold text-indigo-600 bg-indigo-50 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                    />
-                                    <span className="text-xs text-slate-400 font-medium">(ใส่ 999 = ไม่จำกัด)</span>
-                                    </div>
-                                </td>
-                                <td className="py-4 text-center">
-                                    <button 
-                                    onClick={() => toggleLeaveSetting(item.id, 'is_paid_for_monthly', item.is_paid_for_monthly)}
-                                    className={`px-3 py-1 rounded-full text-xs font-bold transition-colors ${
-                                        item.is_paid_for_monthly ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-                                    }`}
-                                    >
-                                    {item.is_paid_for_monthly ? '✅ ได้เงิน' : '❌ ไม่ได้เงิน'}
-                                    </button>
-                                </td>
-                                <td className="py-4 text-center">
-                                    <button 
-                                    onClick={() => toggleLeaveSetting(item.id, 'is_paid_for_daily', item.is_paid_for_daily)}
-                                    className={`px-3 py-1 rounded-full text-xs font-bold transition-colors ${
-                                        item.is_paid_for_daily ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-                                    }`}
-                                    >
-                                    {item.is_paid_for_daily ? '✅ ได้เงิน' : '❌ ไม่ได้เงิน'}
-                                    </button>
-                                </td>
-                                <td className="py-4 text-center">
-                                    <button 
-                                    onClick={() => toggleLeaveSetting(item.id, 'allow_probation', item.allow_probation)}
-                                    className={`px-3 py-1 rounded-full text-xs font-bold transition-colors ${
-                                        item.allow_probation ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-rose-100 text-rose-700 hover:bg-rose-200'
-                                    }`}
-                                    >
-                                    {item.allow_probation ? '✅ ลาได้' : '❌ ลาไม่ได้'}
-                                    </button>
-                                </td>
-                                </tr>
-                            ))}
-                            {leaveTypes.length === 0 && (
-                                <tr>
-                                    <td colSpan={5} className="py-6 text-center text-slate-400 text-sm">ยังไม่มีข้อมูลประเภทการลา</td>
-                                </tr>
-                            )}
-                            </tbody>
-                        </table>
+                            <table className="w-full text-left border-collapse">
+                                <thead>
+                                    <tr className="border-b border-slate-200 text-sm text-slate-500">
+                                        <th className="pb-3 font-medium">ประเภทการลา</th>
+                                        <th className="pb-3 font-medium text-center">สิทธิ์รับค่าจ้าง (วัน/ปี)</th>
+                                        <th className="pb-3 font-medium text-center">รายเดือนได้เงิน?</th>
+                                        <th className="pb-3 font-medium text-center">รายวันได้เงิน?</th>
+                                        <th className="pb-3 font-medium text-center">ทดลองงานลาได้?</th>
+                                        {/* 💡 วางเฉพาะหัวตาราง (th) ตรงนี้ */}
+                                        <th className="pb-3 font-medium text-center">หักเบี้ยขยัน?</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {leaveTypes.map((item) => (
+                                        <tr key={item.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
+                                            <td className="py-4 font-bold text-slate-800">
+                                                {item.name}
+                                            </td>
+                                            <td className="py-4 text-center">
+                                                <div className="flex items-center justify-center gap-2">
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        defaultValue={item.max_paid_days}
+                                                        onBlur={(e) => handleUpdateLeaveDays(item.id, Number(e.target.value))}
+                                                        className="w-20 text-center p-1.5 border border-slate-300 rounded-lg text-sm font-bold text-indigo-600 bg-indigo-50 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                                    />
+                                                    <span className="text-xs text-slate-400 font-medium">(ใส่ 999 = ไม่จำกัด)</span>
+                                                </div>
+                                            </td>
+                                            <td className="py-4 text-center">
+                                                <button
+                                                    onClick={() => toggleLeaveSetting(item.id, 'is_paid_for_monthly', item.is_paid_for_monthly)}
+                                                    className={`px-3 py-1 rounded-full text-xs font-bold transition-colors ${item.is_paid_for_monthly ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                                                        }`}
+                                                >
+                                                    {item.is_paid_for_monthly ? '✅ ได้เงิน' : '❌ ไม่ได้เงิน'}
+                                                </button>
+                                            </td>
+                                            <td className="py-4 text-center">
+                                                <button
+                                                    onClick={() => toggleLeaveSetting(item.id, 'is_paid_for_daily', item.is_paid_for_daily)}
+                                                    className={`px-3 py-1 rounded-full text-xs font-bold transition-colors ${item.is_paid_for_daily ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                                                        }`}
+                                                >
+                                                    {item.is_paid_for_daily ? '✅ ได้เงิน' : '❌ ไม่ได้เงิน'}
+                                                </button>
+                                            </td>
+                                            <td className="py-4 text-center">
+                                                <button
+                                                    onClick={() => toggleLeaveSetting(item.id, 'allow_probation', item.allow_probation)}
+                                                    className={`px-3 py-1 rounded-full text-xs font-bold transition-colors ${item.allow_probation ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-rose-100 text-rose-700 hover:bg-rose-200'
+                                                        }`}
+                                                >
+                                                    {item.allow_probation ? '✅ ลาได้' : '❌ ลาไม่ได้'}
+                                                </button>
+                                            </td>
+                                            {/* 💡 วางข้อมูลและปุ่ม (td) ตรงนี้ ให้อยู่ในลูป .map() */}
+                                            <td className="py-4 text-center">
+                                                <button
+                                                    onClick={() => toggleLeaveSetting(item.id, 'deduct_diligence', item.deduct_diligence)}
+                                                    className={`px-3 py-1 rounded-full text-xs font-bold transition-colors ${item.deduct_diligence ? 'bg-rose-100 text-rose-700 hover:bg-rose-200' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                                                        }`}
+                                                >
+                                                    {item.deduct_diligence ? '❌ หักเบี้ยขยัน' : '✅ ไม่หัก'}
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {leaveTypes.length === 0 && (
+                                        <tr>
+                                            <td colSpan={6} className="py-6 text-center text-slate-400 text-sm">ยังไม่มีข้อมูลประเภทการลา</td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
                         </div>
                         <p className="text-xs text-slate-400 mt-4">* ตัวเลขสิทธิ์รับค่าจ้างจะบันทึกอัตโนมัติเมื่อพิมพ์เสร็จและคลิกพื้นที่อื่น</p>
                         <p className="text-xs text-slate-400 mt-1">* กดที่ปุ่มสถานะเพื่อสลับการตั้งค่าเงื่อนไขการลาทันที</p>

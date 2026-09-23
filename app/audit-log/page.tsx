@@ -152,7 +152,8 @@ export default function AuditLogPage() {
       early_leave_minutes: 'ออกก่อน (นาที)',
       deduction_amount: 'ยอดหักเงิน (บาท)',
       is_manual: 'แก้ไขโดย HR (Manual)',
-      user_id: 'รหัสพนักงาน'
+      user_id: 'รหัสพนักงาน',
+      diligence_steps: 'ตั้งค่าเบี้ยขยัน (ขั้นบันได)',
     }
     return map[field] || field
   }
@@ -194,9 +195,15 @@ export default function AuditLogPage() {
     return null
   }
 
-  const formatVal = (v: any) => {
+ const formatVal = (v: any) => {
     if (v === null || v === undefined || v === '') return 'ว่าง'
     if (typeof v === 'boolean') return v ? 'ใช่ (เปิด)' : 'ไม่ (ปิด)'
+    
+    // 💡 เพิ่มการตรวจสอบ Array สำหรับเบี้ยขยัน เพื่อจัดรูปแบบให้สวยงาม
+    if (Array.isArray(v)) {
+      return v.map((amt, idx) => `ขั้นที่ ${idx + 1}: ฿${amt}`).join(', ')
+    }
+
     if (typeof v === 'object') return JSON.stringify(v)
     
     if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(v)) {

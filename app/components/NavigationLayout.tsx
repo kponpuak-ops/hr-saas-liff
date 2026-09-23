@@ -102,6 +102,8 @@ export default function NavigationLayout({ children }: { children: React.ReactNo
         return ['trial', 'pro'].includes(companyPackage)
       case 'audit_log': // 💡 เพิ่ม Audit log เข้าไปตรงนี้
         return ['trial', 'pro'].includes(companyPackage)
+      case 'management_report': // 💡 เพิ่มเงื่อนไขสำหรับรายงานผู้บริหาร
+        return ['trial', 'pro'].includes(companyPackage)
       default:
         return true
     }
@@ -164,6 +166,22 @@ export default function NavigationLayout({ children }: { children: React.ReactNo
           </Link>
           <Link href="/payroll" className="flex items-center gap-3 px-4 py-3 text-slate-300 hover:bg-indigo-800 hover:text-white rounded-xl transition-all">
             <span>💰</span> จัดการเงินเดือน
+          </Link>
+          <div className="pt-4 pb-2">
+            <div className="px-4 text-xs font-bold text-slate-500 uppercase tracking-wider">ส่วนผู้บริหาร</div>
+          </div>
+
+          {/* 💡 เพิ่มเมนูรายงานตรงนี้ */}
+          {/* เมนูรายงานผู้บริหาร (แสดงป้าย PRO แต่กดเข้าหน้าเพจได้) */}
+          <Link
+            href="/admin/reports"
+            className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium 
+              ${pathname.includes('/reports') ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}
+              ${!canAccessFeature('management_report') ? 'opacity-70' : ''}
+            `}
+          >
+            <span className="text-xl">📈</span> รายงานผู้บริหาร
+            {!canAccessFeature('management_report') && <span className="text-[10px] bg-amber-500 text-white px-1.5 py-0.5 rounded ml-auto shadow-sm">PRO</span>}
           </Link>
           <Link
             href="/audit-log"

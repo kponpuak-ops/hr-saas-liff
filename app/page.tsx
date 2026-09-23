@@ -23,14 +23,21 @@ export default function AnalyticsDashboard() {
   const [weeklyData, setWeeklyData] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
+  // 💡 State สำหรับวันที่ (เริ่มต้นเป็นวันนี้)
+  const [selectedDate, setSelectedDate] = useState(() => {
+    return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' })
+  })
+
+  // ดึงข้อมูลใหม่ทุกครั้งที่ selectedDate เปลี่ยน
   useEffect(() => {
     fetchDashboardStats()
-  }, [])
+  }, [selectedDate])
 
   const fetchDashboardStats = async () => {
     setIsLoading(true)
-    const today = new Date()
-    const todayStr = today.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' })
+    // 💡 ใช้วันที่จาก State แทนวันนี้
+    const targetDateStr = selectedDate 
+    const targetDateObj = new Date(selectedDate)
 
     try {
       const { data: { session } } = await supabase.auth.getSession()
@@ -52,23 +59,22 @@ export default function AnalyticsDashboard() {
         .eq('company_id', companyId)
         .neq('role', 'super_admin')
         
-        
       const employeeCount = employees?.length || 0
 
-      // 2. ข้อมูลลงเวลาวันนี้
+      // 2. ข้อมูลลงเวลา (อิงตามวันที่เลือก)
       const { data: attendanceData } = await supabase
         .from('attendance')
         .select('*, users(first_name, last_name, department), work_shifts(*)')
         .eq('company_id', companyId)
-        .eq('action_date', todayStr)
+        .eq('action_date', targetDateStr)
 
-      // 3. ข้อมูลลาวันนี้
+      // 3. ข้อมูลลา (อิงตามวันที่เลือก)
       const { data: leaveData } = await supabase
         .from('leaves')
         .select('*, users(first_name, last_name, department)')
         .eq('company_id', companyId)
-        .lte('start_date', todayStr)
-        .gte('end_date', todayStr)
+        .lte('start_date', targetDateStr)
+        .gte('end_date', targetDateStr)
         .eq('status', 'approved')
 
       const presentCount = attendanceData ? attendanceData.length : 0
@@ -79,7 +85,6 @@ export default function AnalyticsDashboard() {
       let presentUserIds: number[] = [];
       let onLeaveUserIds: number[] = leaveData?.map(l => l.user_id) || [];
 
-      // 💡 ดึงตัวเลขสาย/ออกก่อน จากฐานข้อมูลโดยตรง
       if (attendanceData) {
         attendanceData.forEach(record => {
           presentUserIds.push(record.user_id)
@@ -101,7 +106,6 @@ export default function AnalyticsDashboard() {
 
       const absentCount = Math.max(0, employeeCount - presentCount - leaveCount);
       
-      // หาคนขาดงาน
       let absentUsers: any[] = [];
       employees?.forEach(emp => {
         if (!presentUserIds.includes(emp.id) && !onLeaveUserIds.includes(emp.id)) {
@@ -111,7 +115,7 @@ export default function AnalyticsDashboard() {
 
       setLateAbsentList([...lateUsers, ...absentUsers])
 
-      // 4. รายการรออนุมัติ (Leave & OT)
+      // 4. รายการรออนุมัติ (Leave & OT) - ดึงข้อมูลล่าสุดเสมอ ไม่ขึ้นกับวันที่ค้นหา
       const { data: pendingLeavesData } = await supabase
         .from('leaves')
         .select('id, leave_type, start_date, created_at, users(first_name, last_name)')
@@ -138,7 +142,7 @@ export default function AnalyticsDashboard() {
 
       setPendingApprovals(combinedPending)
 
-      // 5. Activity Feed (จำลองความเคลื่อนไหวล่าสุดของวันนี้)
+      // 5. Activity Feed (อิงตามวันที่เลือก)
       const activities = [
         ...(attendanceData?.map(a => ({ type: 'check_in', time: a.check_in_time, name: a.users?.first_name })) || []),
         ...(attendanceData?.filter(a => a.check_out_time).map(a => ({ type: 'check_out', time: a.check_out_time, name: a.users?.first_name })) || [])
@@ -146,9 +150,9 @@ export default function AnalyticsDashboard() {
       
       setActivityFeed(activities)
 
-      // 6. ข้อมูลกราฟ 7 วันย้อนหลัง
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(today.getDate() - 6);
+      // 6. ข้อมูลกราฟ 7 วันย้อนหลัง (นับย้อนหลังจากวันที่เลือก)
+      const sevenDaysAgo = new Date(targetDateObj);
+      sevenDaysAgo.setDate(targetDateObj.getDate() - 6);
       const startGte = sevenDaysAgo.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
 
       const { data: weeklyAttendance } = await supabase
@@ -156,11 +160,12 @@ export default function AnalyticsDashboard() {
         .select('action_date')
         .eq('company_id', companyId)
         .gte('action_date', startGte)
+        .lte('action_date', targetDateStr)
 
       const weekChart = [];
       for (let i = 6; i >= 0; i--) {
-        const d = new Date();
-        d.setDate(today.getDate() - i);
+        const d = new Date(targetDateObj);
+        d.setDate(targetDateObj.getDate() - i);
         const dateStr = d.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
         const shortDate = d.toLocaleDateString('th-TH', { weekday: 'short', day: 'numeric' });
         
@@ -169,17 +174,18 @@ export default function AnalyticsDashboard() {
       }
       setWeeklyData(weekChart)
 
+      // ดึงข้อมูล OT อนุมัติแล้วของวันที่เลือก
       const { count: otTodayCount } = await supabase
         .from('ot_requests')
         .select('*', { count: 'exact', head: true })
         .eq('company_id', companyId)
         .eq('status', 'approved')
-        .eq('request_date', todayStr)
+        .eq('request_date', targetDateStr)
 
       setStats({
         totalEmployees: employeeCount,
         presentToday: presentCount,
-        lateToday: lateCount, // 💡 ตอนนี้ lateToday นับรวมคนออกก่อนด้วย
+        lateToday: lateCount,
         absentToday: absentCount,
         onLeaveToday: leaveCount,
         pendingLeaves: pendingLeaveCount,
@@ -194,14 +200,20 @@ export default function AnalyticsDashboard() {
     }
   }
 
-  // สีสำหรับ Donut Chart
-  const COLORS = ['#10b981', '#f59e0b', '#ef4444', '#3b82f6'];
-  const pieData = [
-    { name: 'ตรงเวลา', value: stats.presentToday - stats.lateToday },
-    { name: 'สาย/ออกก่อน', value: stats.lateToday }, // 💡 เปลี่ยนชื่อป้าย
-    { name: 'ขาดงาน', value: stats.absentToday },
-    { name: 'ลางาน', value: stats.onLeaveToday },
-  ].filter(item => item.value > 0)
+  // 💡 ผูกสี (fill) ให้ตรงกับกรอบตัวเลขด้านบนอย่างถาวร
+  const pieDataRaw = [
+    { name: 'ตรงเวลา', value: stats.presentToday - stats.lateToday, fill: '#10b981' }, // สีเขียว (Emerald)
+    { name: 'สาย/ออกก่อน', value: stats.lateToday, fill: '#f59e0b' }, // สีส้ม (Amber)
+    { name: 'ขาดงาน', value: stats.absentToday, fill: '#ef4444' }, // สีแดง (Rose)
+    { name: 'ลางาน', value: stats.onLeaveToday, fill: '#3b82f6' }, // สีฟ้า (Blue)
+  ];
+  
+  // กรองค่าที่เป็น 0 ออกก่อนนำไปวาดกราฟ
+  const pieData = pieDataRaw.filter(item => item.value > 0);
+
+  // แปลงวันที่สำหรับโชว์บนหัวเว็บ
+  const displayDate = new Date(selectedDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })
+  const isToday = selectedDate === new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' })
 
   if (isLoading) {
     return (
@@ -213,30 +225,42 @@ export default function AnalyticsDashboard() {
 
   return (
     <div className="pb-10 max-w-7xl mx-auto animate-fade-in">
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Executive Dashboard</h1>
           <p className="text-slate-500 text-sm mt-1">
-            ภาพรวมประจำวันที่ {new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}
+            ภาพรวมประจำวันที่ {displayDate} {isToday && <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-bold ml-2">วันนี้</span>}
           </p>
         </div>
-        <button
-          onClick={fetchDashboardStats}
-          className="px-4 py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg text-sm font-bold transition-colors shadow-sm flex items-center gap-2"
-        >
-          🔄 อัปเดตข้อมูล
-        </button>
+        
+        <div className="flex items-center gap-3">
+          <div className="flex items-center bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm">
+            <span className="bg-slate-50 px-3 py-2 text-slate-500 text-xs font-bold border-r border-slate-200">
+              📅 เลือกวันที่:
+            </span>
+            <input 
+              type="date"
+              value={selectedDate}
+              max={new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' })}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              className="p-2 text-sm text-slate-700 outline-none font-medium cursor-pointer hover:bg-slate-50 transition"
+            />
+          </div>
+          <button
+            onClick={fetchDashboardStats}
+            className="px-4 py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg text-sm font-bold transition-colors shadow-sm flex items-center gap-2 h-[38px]"
+          >
+            🔄 รีเฟรช
+          </button>
+        </div>
       </div>
 
       {/* --- ส่วนที่ 1: การ์ดสรุปตัวเลข (KPIs) แบบ Modern SaaS --- */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
         
-        {/* 1. พนักงานทั้งหมด */}
         <Link href="/employees" className="relative overflow-hidden bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-lg hover:border-indigo-300 hover:-translate-y-1 transition-all group block">
           <div className="flex justify-between items-start mb-2">
-            <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center text-xl shadow-sm border border-indigo-100">
-              👥
-            </div>
+            <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center text-xl shadow-sm border border-indigo-100">👥</div>
             <span className="text-slate-300 group-hover:text-indigo-500 transition-colors">↗</span>
           </div>
           <div className="mt-3">
@@ -249,12 +273,9 @@ export default function AnalyticsDashboard() {
           <div className="absolute -bottom-4 -right-4 text-7xl opacity-[0.03] group-hover:scale-110 group-hover:opacity-[0.05] transition-all duration-300 pointer-events-none">👥</div>
         </Link>
 
-        {/* 2. มาทำงาน */}
         <Link href="/attendance" className="relative overflow-hidden bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-lg hover:border-emerald-300 hover:-translate-y-1 transition-all group block">
           <div className="flex justify-between items-start mb-2">
-            <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center text-xl shadow-sm border border-emerald-100">
-              ✅
-            </div>
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center text-xl shadow-sm border border-emerald-100">✅</div>
             <span className="text-slate-300 group-hover:text-emerald-500 transition-colors">↗</span>
           </div>
           <div className="mt-3">
@@ -267,12 +288,9 @@ export default function AnalyticsDashboard() {
           <div className="absolute -bottom-4 -right-4 text-7xl opacity-[0.03] group-hover:scale-110 group-hover:opacity-[0.05] transition-all duration-300 pointer-events-none">✅</div>
         </Link>
 
-        {/* 3. สาย / ออกก่อน */}
         <Link href="/attendance" className="relative overflow-hidden bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-lg hover:border-amber-300 hover:-translate-y-1 transition-all group block">
           <div className="flex justify-between items-start mb-2">
-            <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center text-xl shadow-sm border border-amber-100">
-              ⏰
-            </div>
+            <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center text-xl shadow-sm border border-amber-100">⏰</div>
             <span className="text-slate-300 group-hover:text-amber-500 transition-colors">↗</span>
           </div>
           <div className="mt-3">
@@ -285,12 +303,9 @@ export default function AnalyticsDashboard() {
           <div className="absolute -bottom-4 -right-4 text-7xl opacity-[0.03] group-hover:scale-110 group-hover:opacity-[0.05] transition-all duration-300 pointer-events-none">⏰</div>
         </Link>
 
-        {/* 4. ขาดงาน */}
         <Link href="/attendance" className="relative overflow-hidden bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-lg hover:border-rose-300 hover:-translate-y-1 transition-all group block">
           <div className="flex justify-between items-start mb-2">
-            <div className="w-10 h-10 rounded-xl bg-rose-50 flex items-center justify-center text-xl shadow-sm border border-rose-100">
-              ❌
-            </div>
+            <div className="w-10 h-10 rounded-xl bg-rose-50 flex items-center justify-center text-xl shadow-sm border border-rose-100">❌</div>
             <span className="text-slate-300 group-hover:text-rose-500 transition-colors">↗</span>
           </div>
           <div className="mt-3">
@@ -303,12 +318,9 @@ export default function AnalyticsDashboard() {
           <div className="absolute -bottom-4 -right-4 text-7xl opacity-[0.03] group-hover:scale-110 group-hover:opacity-[0.05] transition-all duration-300 pointer-events-none">❌</div>
         </Link>
 
-        {/* 5. ลางาน */}
         <Link href="/leaves" className="relative overflow-hidden bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-lg hover:border-blue-300 hover:-translate-y-1 transition-all group block">
           <div className="flex justify-between items-start mb-2">
-            <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-xl shadow-sm border border-blue-100">
-              🏖️
-            </div>
+            <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-xl shadow-sm border border-blue-100">🏖️</div>
             <span className="text-slate-300 group-hover:text-blue-500 transition-colors">↗</span>
           </div>
           <div className="mt-3">
@@ -321,16 +333,13 @@ export default function AnalyticsDashboard() {
           <div className="absolute -bottom-4 -right-4 text-7xl opacity-[0.03] group-hover:scale-110 group-hover:opacity-[0.05] transition-all duration-300 pointer-events-none">🏖️</div>
         </Link>
 
-        {/* 6. OT วันนี้ */}
         <Link href="/ot" className="relative overflow-hidden bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-lg hover:border-purple-300 hover:-translate-y-1 transition-all group block">
           <div className="flex justify-between items-start mb-2">
-            <div className="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center text-xl shadow-sm border border-purple-100">
-              💸
-            </div>
+            <div className="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center text-xl shadow-sm border border-purple-100">💸</div>
             <span className="text-slate-300 group-hover:text-purple-500 transition-colors">↗</span>
           </div>
           <div className="mt-3">
-            <div className="text-slate-500 text-xs font-bold mb-1 uppercase tracking-wider">ทำโอทีวันนี้</div>
+            <div className="text-slate-500 text-xs font-bold mb-1 uppercase tracking-wider">ทำโอที {isToday ? 'วันนี้' : 'วันนั้น'}</div>
             <div className="flex items-baseline gap-2">
               <span className="text-3xl font-extrabold text-purple-600">{stats.otToday}</span>
               <span className="text-xs font-medium text-slate-400">คน</span>
@@ -343,29 +352,27 @@ export default function AnalyticsDashboard() {
 
       {/* --- ส่วนที่ 2: กราฟ (Data Visualization) และ ฟีดความเคลื่อนไหว --- */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-        {/* กราฟโดนัท: สัดส่วนการมาทำงานวันนี้ */}
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-          <h2 className="text-sm font-bold text-slate-800 mb-4">สัดส่วนสถานะพนักงานวันนี้</h2>
+          <h2 className="text-sm font-bold text-slate-800 mb-4">สัดส่วนสถานะพนักงาน {isToday ? 'วันนี้' : 'วันนั้น'}</h2>
           <div className="h-48 w-full">
             {pieData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie data={pieData} innerRadius={50} outerRadius={70} paddingAngle={3} dataKey="value">
-                    {pieData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
+                    {pieData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.fill} />)}
                   </Pie>
                   <Tooltip />
                   <Legend verticalAlign="bottom" height={36} iconType="circle" />
                 </PieChart>
               </ResponsiveContainer>
             ) : (
-              <div className="flex h-full items-center justify-center text-slate-400 text-sm">ยังไม่มีข้อมูลวันนี้</div>
+              <div className="flex h-full items-center justify-center text-slate-400 text-sm">ไม่มีข้อมูล</div>
             )}
           </div>
         </div>
 
-        {/* กราฟแท่ง: สถิติ 7 วันย้อนหลัง */}
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm lg:col-span-2">
-          <h2 className="text-sm font-bold text-slate-800 mb-4">จำนวนคนมาทำงาน 7 วันย้อนหลัง</h2>
+          <h2 className="text-sm font-bold text-slate-800 mb-4">จำนวนคนมาทำงาน 7 วันย้อนหลัง (นับจาก {displayDate})</h2>
           <div className="h-48 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={weeklyData} margin={{ top: 5, right: 20, left: -25, bottom: 0 }}>
@@ -382,7 +389,6 @@ export default function AnalyticsDashboard() {
       {/* --- ส่วนที่ 3: ตารางรายชื่อ Actionable (รายการที่ต้องจัดการ) --- */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
-        {/* รายชื่อคนมาสาย / ออกก่อน และ ขาดงาน */}
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm lg:col-span-1">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-sm font-bold text-slate-800">⚠️ รายชื่อ สาย / ออกก่อน / ขาดงาน</h2>
@@ -390,7 +396,7 @@ export default function AnalyticsDashboard() {
           </div>
           <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
             {lateAbsentList.length === 0 ? (
-              <p className="text-center text-slate-400 text-sm py-4">ยอดเยี่ยม! วันนี้ไม่มีพนักงานสายหรือขาด</p>
+              <p className="text-center text-slate-400 text-sm py-4">ยอดเยี่ยม! ไม่มีพนักงานสายหรือขาดในวันนี้</p>
             ) : (
               lateAbsentList.map((item, idx) => (
                 <div key={idx} className="flex justify-between items-center p-3 bg-slate-50 border border-slate-100 rounded-lg">
@@ -398,7 +404,6 @@ export default function AnalyticsDashboard() {
                     <div className="text-sm font-bold text-slate-800">{item.user?.first_name} {item.user?.last_name}</div>
                     <div className="text-xs text-slate-500">{item.user?.department || 'ไม่ระบุแผนก'}</div>
                   </div>
-                  {/* 💡 แจกแจงป้ายกำกับแยกกันระหว่างสายกับออกก่อน */}
                   {item.type === 'late_early' ? (
                     <div className="text-right flex flex-col items-end gap-1">
                       {item.lateMins > 0 && <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md">เข้าสาย {item.lateMins} นาที</span>}
@@ -415,10 +420,9 @@ export default function AnalyticsDashboard() {
           </div>
         </div>
 
-        {/* รายการรออนุมัติ (Leave & OT) */}
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm lg:col-span-1">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-sm font-bold text-slate-800">📑 รอดำเนินการด่วน</h2>
+            <h2 className="text-sm font-bold text-slate-800">📑 รอดำเนินการด่วน (ล่าสุด)</h2>
             <span className="bg-indigo-100 text-indigo-700 text-xs font-bold px-2 py-0.5 rounded-full">{stats.pendingLeaves + stats.pendingOTs} รายการ</span>
           </div>
           <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
@@ -454,18 +458,19 @@ export default function AnalyticsDashboard() {
           )}
         </div>
 
-        {/* Activity Feed (Live Log) */}
         <div className="bg-slate-800 p-5 rounded-xl border border-slate-700 shadow-sm lg:col-span-1 text-slate-200">
           <h2 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
-            <span className="relative flex h-2.5 w-2.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
-            </span>
-            ความเคลื่อนไหวล่าสุด
+            {isToday && (
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+              </span>
+            )}
+            ความเคลื่อนไหว
           </h2>
           <div className="space-y-4 max-h-64 overflow-y-auto pr-1">
             {activityFeed.length === 0 ? (
-              <p className="text-center text-slate-500 text-sm py-4">ยังไม่มีความเคลื่อนไหวในระบบวันนี้</p>
+              <p className="text-center text-slate-500 text-sm py-4">ไม่มีความเคลื่อนไหวในระบบสำหรับวันที่เลือก</p>
             ) : (
               activityFeed.map((act, idx) => (
                 <div key={idx} className="flex gap-3 text-sm">

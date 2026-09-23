@@ -13,6 +13,13 @@ export default function AttendanceAdminPage() {
   
   // State สำหรับ Dropdown พนักงานใน Modal
   const [usersList, setUsersList] = useState<any[]>([])
+  
+  // State สำหรับตัวกรอง (Filters)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [filterDept, setFilterDept] = useState('all')
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
+  const [departments, setDepartments] = useState<string[]>([])
 
   // สำหรับ Popup ขยายรูป
   const [previewImage, setPreviewImage] = useState<string | null>(null)
@@ -46,7 +53,6 @@ export default function AttendanceAdminPage() {
       if (!userAuth?.company_id) return
       setCompanyId(userAuth.company_id)
 
-      // ดึงการตั้งค่าบริษัท
       const { data: companySettings } = await supabase
         .from('company_settings')
         .select('*')
@@ -54,22 +60,25 @@ export default function AttendanceAdminPage() {
         .single()
       setSettings(companySettings)
 
-      // ดึงรายชื่อพนักงานสำหรับ Dropdown
       const { data: empData } = await supabase
         .from('users')
-        .select('id, first_name, last_name, employee_id')
+        .select('id, first_name, last_name, employee_id, department')
         .eq('company_id', userAuth.company_id)
         .neq('role', 'super_admin')
+      
       setUsersList(empData || [])
+      
+      if (empData) {
+        const uniqueDepts = Array.from(new Set(empData.map(u => u.department).filter(Boolean)))
+        setDepartments(uniqueDepts as string[])
+      }
 
-      // ดึงวันหยุดบริษัท
       const { data: holidaysData } = await supabase
         .from('company_holidays')
         .select('holiday_date')
         .eq('company_id', userAuth.company_id)
       setHolidays(holidaysData?.map(h => h.holiday_date) || [])
 
-      // ดึง OT ที่อนุมัติแล้ว
       const { data: otData } = await supabase
         .from('ot_requests')
         .select('*, users!user_id!inner(company_id)')
@@ -77,12 +86,11 @@ export default function AttendanceAdminPage() {
         .eq('status', 'approved')
       setOtRequests(otData || [])
 
-      // ดึงข้อมูลลงเวลา
       const { data: attendanceData, error } = await supabase
         .from('attendance')
         .select(`
           *,
-          users!inner (company_id, first_name, last_name, avatar_url, position, base_salary, daily_rate),
+          users!inner (company_id, first_name, last_name, avatar_url, position, base_salary, daily_rate, department),
           work_shifts (shift_name, start_time, end_time, late_buffer_minutes, late_deduction_per_minute)
         `)
         .eq('users.company_id', userAuth.company_id)
@@ -98,7 +106,6 @@ export default function AttendanceAdminPage() {
     }
   }
 
-  // ฟังก์ชันบันทึกข้อมูลแบบ Manual
   const handleManualSave = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!formData.userId || !formData.actionDate || !formData.checkInTime) {
@@ -133,7 +140,6 @@ export default function AttendanceAdminPage() {
       const rate = settings?.late_deduction_per_minute || 0
       deductAmt = (lateMins + earlyMins) * rate
 
-      // 💡 1. เปลี่ยนเป็น .maybeSingle() ป้องกันบั๊กกรณีหาข้อมูลไม่เจอ
       const { data: existingRecord, error: checkError } = await supabase
         .from('attendance')
         .select('id')
@@ -144,7 +150,6 @@ export default function AttendanceAdminPage() {
       if (checkError) throw checkError;
 
       if (existingRecord) {
-        // 💡 2. ดัก Error ตอน Update
         const { error: updateError } = await supabase.from('attendance').update({
           check_in_time: checkInDateTime.toISOString(),
           check_out_time: checkOutDateTime ? checkOutDateTime.toISOString() : null,
@@ -156,7 +161,6 @@ export default function AttendanceAdminPage() {
         
         if (updateError) throw updateError;
       } else {
-        // 💡 3. ดัก Error ตอน Insert
         const { error: insertError } = await supabase.from('attendance').insert({
           company_id: companyId,
           user_id: formData.userId,
@@ -174,10 +178,9 @@ export default function AttendanceAdminPage() {
 
       alert('บันทึกข้อมูลเรียบร้อยแล้ว')
       setIsModalOpen(false)
-      fetchData() // รีเฟรชตารางใหม่ทันที
+      fetchData()
     } catch (error: any) {
       console.error('Save error:', error)
-      // 💡 โชว์ข้อความ Error จากฐานข้อมูลให้เห็นชัดๆ
       alert('เกิดข้อผิดพลาด: ' + (error.message || JSON.stringify(error)))
     } finally {
       setIsSaving(false)
@@ -263,10 +266,74 @@ export default function AttendanceAdminPage() {
     return new Intl.NumberFormat('th-TH', { style: 'decimal', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount || 0)
   }
 
+  // ระบบกรองข้อมูล
+  const filteredRecords = records.filter(record => {
+    let match = true;
+    if (searchQuery) {
+      const fullName = `${record.users?.first_name} ${record.users?.last_name}`.toLowerCase();
+      if (!fullName.includes(searchQuery.toLowerCase())) match = false;
+    }
+    if (filterDept !== 'all' && record.users?.department !== filterDept) match = false;
+    if (startDate && record.action_date < startDate) match = false;
+    if (endDate && record.action_date > endDate) match = false;
+    return match;
+  });
+
+  // 💡 ประมวลผลข้อมูลสรุป (Summary) จากรายการที่กรองแล้ว
+  const summaryData = filteredRecords.reduce((acc, record) => {
+    acc.lateMins += record.late_minutes || 0;
+    acc.earlyMins += record.early_leave_minutes || 0;
+    acc.deduction += record.deduction_amount || 0;
+    
+    const ot = calculateOTForRecord(record);
+    acc.otHours += ot.hours;
+    acc.otAmount += ot.amount;
+    
+    acc.uniqueUsers.add(record.user_id);
+    return acc;
+  }, { lateMins: 0, earlyMins: 0, deduction: 0, otHours: 0, otAmount: 0, uniqueUsers: new Set() });
+
+  const handleExportCSV = () => {
+    if (filteredRecords.length === 0) {
+      alert('ไม่มีข้อมูลสำหรับส่งออก');
+      return;
+    }
+    let csvContent = '\uFEFF'; 
+    csvContent += 'วันที่,พนักงาน,แผนก,เวลาเข้า,เวลาออก,สาย (นาที),ออกก่อน (นาที),หักเงิน (บาท),OT (ชม.),OT (บาท),รูปแบบ\n';
+
+    filteredRecords.forEach(record => {
+      const date = new Date(record.action_date).toLocaleDateString('th-TH');
+      const name = `${record.users?.first_name || ''} ${record.users?.last_name || ''}`;
+      const dept = record.users?.department || '-';
+      const timeIn = record.check_in_time ? new Date(record.check_in_time).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : '-';
+      const timeOut = record.check_out_time ? new Date(record.check_out_time).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : '-';
+      const late = record.late_minutes || 0;
+      const early = record.early_leave_minutes || 0;
+      const deduct = record.deduction_amount || 0;
+      
+      const otResult = calculateOTForRecord(record);
+      const otHours = otResult.amount > 0 ? otResult.hours.toFixed(2) : '0';
+      const otAmount = otResult.amount > 0 ? otResult.amount.toFixed(2) : '0';
+      const isManual = record.is_manual ? 'HR แก้ไข' : 'สแกนปกติ';
+
+      csvContent += `"${date}","${name}","${dept}","${timeIn}","${timeOut}","${late}","${early}","${deduct}","${otHours}","${otAmount}","${isManual}"\n`;
+    });
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `attendance_export_${new Date().getTime()}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
-        <div className="mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div className="mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
             <h1 className="text-2xl font-bold text-slate-800">ประวัติการลงเวลา (Attendance)</h1>
             <p className="text-slate-500 mt-1 text-sm">
@@ -275,8 +342,7 @@ export default function AttendanceAdminPage() {
               {settings?.location_lat && ` • 📍 รัศมี GPS ${settings.location_radius}ม.`}
             </p>
           </div>
-          <div className="flex gap-3">
-            {/* 💡 ปุ่มเพิ่ม/แก้ไขเวลา มาแล้วครับ */}
+          <div className="flex flex-wrap gap-3">
             <button 
               onClick={() => setIsModalOpen(true)}
               className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow text-sm font-medium transition flex items-center gap-2"
@@ -284,13 +350,97 @@ export default function AttendanceAdminPage() {
               📝 เพิ่ม/แก้ไขเวลา
             </button>
             <button 
-              onClick={fetchData}
+              onClick={handleExportCSV}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow text-sm font-medium transition flex items-center gap-2"
+            >
+              📥 ส่งออก Excel (CSV)
+            </button>
+            <button 
+              onClick={() => {
+                setSearchQuery('');
+                setFilterDept('all');
+                setStartDate('');
+                setEndDate('');
+                fetchData();
+              }}
               className="px-4 py-2 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-lg shadow-sm text-sm font-medium transition flex items-center gap-2"
             >
               🔄 รีเฟรชข้อมูล
             </button>
           </div>
         </div>
+
+        {/* กล่องตัวกรองค้นหา (Filter Bar) */}
+        <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-6 flex flex-col md:flex-row gap-4">
+          <div className="flex-1">
+            <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">🔍 ค้นหาพนักงาน</label>
+            <input 
+              type="text" 
+              placeholder="พิมพ์ชื่อ หรือ นามสกุล..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full p-2.5 border border-slate-200 rounded-lg text-sm bg-slate-50 outline-none focus:border-indigo-500"
+            />
+          </div>
+          
+          <div className="md:w-48">
+            <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">🏢 กรองตามแผนก</label>
+            <select 
+              value={filterDept}
+              onChange={(e) => setFilterDept(e.target.value)}
+              className="w-full p-2.5 border border-slate-200 rounded-lg text-sm bg-slate-50 outline-none focus:border-indigo-500 cursor-pointer"
+            >
+              <option value="all">ทุกแผนก</option>
+              {departments.map(dept => (
+                <option key={dept} value={dept}>{dept}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="md:w-40">
+            <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">📅 ตั้งแต่วันที่</label>
+            <input 
+              type="date" 
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="w-full p-2.5 border border-slate-200 rounded-lg text-sm bg-slate-50 outline-none focus:border-indigo-500"
+            />
+          </div>
+
+          <div className="md:w-40">
+            <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">📅 ถึงวันที่</label>
+            <input 
+              type="date" 
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="w-full p-2.5 border border-slate-200 rounded-lg text-sm bg-slate-50 outline-none focus:border-indigo-500"
+            />
+          </div>
+        </div>
+
+        {/* 💡 แถบสรุปข้อมูล (Dynamic Summary Bar) */}
+        {filteredRecords.length > 0 && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-center">
+              <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">รายการทั้งหมดที่พบ</div>
+              <div className="text-2xl font-black text-slate-800">{filteredRecords.length} <span className="text-sm font-bold text-slate-500">รายการ</span></div>
+            </div>
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-center">
+              <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">พนักงาน (ไม่ซ้ำ)</div>
+              <div className="text-2xl font-black text-indigo-600">{summaryData.uniqueUsers.size} <span className="text-sm font-bold text-indigo-400">คน</span></div>
+            </div>
+            <div className="bg-rose-50 p-4 rounded-xl border border-rose-100 shadow-sm flex flex-col justify-center">
+              <div className="text-[11px] font-bold text-rose-600 uppercase tracking-wider mb-1">สาย/ออกก่อน (หักเงิน)</div>
+              <div className="text-2xl font-black text-rose-700">{formatMoney(summaryData.deduction)} <span className="text-sm font-bold text-rose-500">฿</span></div>
+              <div className="text-[10px] text-rose-500 font-semibold mt-0.5">รวมสาย/ออกก่อน {summaryData.lateMins + summaryData.earlyMins} นาที</div>
+            </div>
+            <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-100 shadow-sm flex flex-col justify-center">
+              <div className="text-[11px] font-bold text-emerald-600 uppercase tracking-wider mb-1">OT รวม (จ่ายเพิ่ม)</div>
+              <div className="text-2xl font-black text-emerald-700">{formatMoney(summaryData.otAmount)} <span className="text-sm font-bold text-emerald-500">฿</span></div>
+              <div className="text-[10px] text-emerald-600 font-semibold mt-0.5">อนุมัติรวม {summaryData.otHours.toFixed(2)} ชม.</div>
+            </div>
+          </div>
+        )}
 
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
           <div className="overflow-x-auto">
@@ -311,12 +461,12 @@ export default function AttendanceAdminPage() {
                   <tr>
                     <td colSpan={7} className="text-center py-10 text-slate-500">กำลังโหลดข้อมูล...</td>
                   </tr>
-                ) : records.length === 0 ? (
+                ) : filteredRecords.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="text-center py-10 text-slate-500">ยังไม่มีประวัติการลงเวลา</td>
+                    <td colSpan={7} className="text-center py-10 text-slate-500">ไม่พบประวัติการลงเวลาตามที่ค้นหา</td>
                   </tr>
                 ) : (
-                  records.map((record) => {
+                  filteredRecords.map((record) => {
                     const otResult = calculateOTForRecord(record)
                     const distIn = calculateDistance(settings?.location_lat, settings?.location_lng, record.check_in_lat, record.check_in_lng)
                     const distOut = calculateDistance(settings?.location_lat, settings?.location_lng, record.check_out_lat, record.check_out_lng)
@@ -343,7 +493,7 @@ export default function AttendanceAdminPage() {
                                 {record.users?.first_name} {record.users?.last_name}
                                 {record.is_manual && <span className="ml-2 text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">HR แก้ไข</span>}
                               </p>
-                              <p className="text-xs text-slate-500">{record.users?.position || 'พนักงาน'}</p>
+                              <p className="text-xs text-slate-500">{record.users?.department ? `${record.users.department} • ` : ''}{record.users?.position || 'พนักงาน'}</p>
                             </div>
                           </div>
                         </td>
@@ -411,7 +561,7 @@ export default function AttendanceAdminPage() {
                           {otResult.amount > 0 ? (
                             <div className="flex flex-col items-end">
                               <span className={`text-[10px] font-bold px-1.5 rounded ${otResult.isHoliday ? 'bg-purple-100 text-purple-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                                {otResult.hours.toFixed(1)} ชม. ({otResult.isHoliday ? 'วันหยุด' : 'ปกติ'})
+                                {otResult.hours.toFixed(2)} ชม. ({otResult.isHoliday ? 'วันหยุด' : 'ปกติ'})
                               </span>
                               <span className="text-emerald-600 font-bold mt-1">+{formatMoney(otResult.amount)} ฿</span>
                             </div>
