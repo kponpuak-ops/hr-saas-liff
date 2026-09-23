@@ -3,15 +3,24 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import Link from 'next/link'
+import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 
 export default function AnalyticsDashboard() {
   const [stats, setStats] = useState({
     totalEmployees: 0,
     presentToday: 0,
     lateToday: 0,
+    absentToday: 0,
     onLeaveToday: 0,
     pendingLeaves: 0,
+    otToday: 0,
+    pendingOTs: 0,
   })
+  
+  const [lateAbsentList, setLateAbsentList] = useState<any[]>([])
+  const [pendingApprovals, setPendingApprovals] = useState<any[]>([])
+  const [activityFeed, setActivityFeed] = useState<any[]>([])
+  const [weeklyData, setWeeklyData] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
@@ -20,17 +29,8 @@ export default function AnalyticsDashboard() {
 
   const fetchDashboardStats = async () => {
     setIsLoading(true)
-    
-    // 1. หาวันที่ปัจจุบันของไทย
-    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' })
-    
-    // 2. สร้างออบเจกต์เวลาเริ่มต้น-สิ้นสุดวันของไทย
-    const startOfDayThai = new Date(`${todayStr}T00:00:00+07:00`)
-    const endOfDayThai = new Date(`${todayStr}T23:59:59+07:00`)
-    
-    // 3. แปลงเป็นรูปแบบ UTC มาตรฐาน (ISO String) ที่ Supabase เข้าใจและไม่ Error 400
-    const startOfDay = startOfDayThai.toISOString()
-    const endOfDay = endOfDayThai.toISOString()
+    const today = new Date()
+    const todayStr = today.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' })
 
     try {
       const { data: { session } } = await supabase.auth.getSession()
@@ -38,57 +38,173 @@ export default function AnalyticsDashboard() {
 
       const { data: currentUser } = await supabase
         .from('users')
-        .select('company_id')
+        .select('company_id, role, department')
         .eq('auth_id', session.user.id)
         .single()
 
       if (!currentUser?.company_id) return
-      
       const companyId = currentUser.company_id
 
-      const { count: employeeCount } = await supabase
+      // 1. ข้อมูลพนักงานทั้งหมด (ไม่รวม admin)
+      const { data: employees } = await supabase
         .from('users')
-        .select('*', { count: 'exact', head: true })
+        .select('id, first_name, last_name, department, position')
         .eq('company_id', companyId)
         .neq('role', 'super_admin')
         .neq('role', 'admin')
+        
+      const employeeCount = employees?.length || 0
 
-      // ดึงข้อมูลการลงเวลาด้วยเวลา UTC มาตรฐาน
-      const { data: attendanceData, error: attendanceError } = await supabase
-        .from('attendance')
+      const { data: settings } = await supabase
+        .from('company_settings')
         .select('*')
         .eq('company_id', companyId)
-        .gte('check_in_time', startOfDay)
-        .lte('check_in_time', endOfDay)
-        
-      if (attendanceError) {
-          console.error("Error fetching attendance:", attendanceError)
-      }
+        .single()
+
+      // 2. ข้อมูลลงเวลาวันนี้
+      const { data: attendanceData } = await supabase
+        .from('attendance')
+        .select('*, users(first_name, last_name, department), work_shifts(*)')
+        .eq('company_id', companyId)
+        .eq('action_date', todayStr)
+
+      // 3. ข้อมูลลาวันนี้
+      const { data: leaveData } = await supabase
+        .from('leaves')
+        .select('*, users(first_name, last_name, department)')
+        .eq('company_id', companyId)
+        .lte('start_date', todayStr)
+        .gte('end_date', todayStr)
+        .eq('status', 'approved')
 
       const presentCount = attendanceData ? attendanceData.length : 0
-      const lateCount = attendanceData ? attendanceData.filter(a => a.status === 'late').length : 0
+      const leaveCount = leaveData ? leaveData.length : 0
+      
+      let lateCount = 0;
+      let lateUsers: any[] = [];
+      let presentUserIds: number[] = [];
+      let onLeaveUserIds: number[] = leaveData?.map(l => l.user_id) || [];
 
-      const { count: leaveCount } = await supabase
+      if (attendanceData && settings) {
+        attendanceData.forEach(record => {
+          presentUserIds.push(record.user_id)
+          if (!record.check_in_time) return;
+          const checkInTime = new Date(record.check_in_time);
+          
+          let startTime = settings.default_start_time;
+          let bufferMins = settings.late_buffer_minutes || 0;
+          
+          if (settings.has_shifts && record.work_shifts) {
+            startTime = record.work_shifts.start_time;
+            bufferMins = record.work_shifts.late_buffer_minutes || 0;
+          }
+
+          if (startTime) {
+            const expectedTime = new Date(`${record.action_date}T${startTime}+07:00`);
+            const maxAllowedTime = new Date(expectedTime.getTime() + (bufferMins * 60000));
+            
+            if (checkInTime > maxAllowedTime) {
+              lateCount++;
+              const lateMinutes = Math.floor((checkInTime.getTime() - expectedTime.getTime()) / 60000);
+              lateUsers.push({
+                type: 'late',
+                user: record.users,
+                time: record.check_in_time,
+                mins: lateMinutes
+              });
+            }
+          }
+        });
+      }
+
+      const absentCount = Math.max(0, employeeCount - presentCount - leaveCount);
+      
+      // หาคนขาดงาน
+      let absentUsers: any[] = [];
+      employees?.forEach(emp => {
+        if (!presentUserIds.includes(emp.id) && !onLeaveUserIds.includes(emp.id)) {
+          absentUsers.push({ type: 'absent', user: emp })
+        }
+      })
+
+      setLateAbsentList([...lateUsers, ...absentUsers])
+
+      // 4. รายการรออนุมัติ (Leave & OT)
+      const { data: pendingLeavesData } = await supabase
         .from('leaves')
+        .select('id, leave_type, start_date, created_at, users(first_name, last_name)')
+        .eq('company_id', companyId)
+        .in('status', ['pending', 'manager_approved'])
+        .order('created_at', { ascending: false })
+        .limit(5)
+
+      const { data: pendingOTsData } = await supabase
+        .from('ot_requests')
+        .select('id, request_date, start_time, end_time, created_at, users(first_name, last_name)')
+        .eq('company_id', companyId)
+        .in('status', ['pending', 'manager_approved'])
+        .order('created_at', { ascending: false })
+        .limit(5)
+        
+      const pendingLeaveCount = pendingLeavesData?.length || 0;
+      const pendingOTCount = pendingOTsData?.length || 0;
+
+      const combinedPending = [
+        ...(pendingLeavesData?.map(l => ({ ...l, reqType: 'leave' })) || []),
+        ...(pendingOTsData?.map(o => ({ ...o, reqType: 'ot' })) || [])
+      ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 5)
+
+      setPendingApprovals(combinedPending)
+
+      // 5. Activity Feed (จำลองความเคลื่อนไหวล่าสุดของวันนี้)
+      const activities = [
+        ...(attendanceData?.map(a => ({ type: 'check_in', time: a.check_in_time, name: a.users?.first_name })) || []),
+        ...(attendanceData?.filter(a => a.check_out_time).map(a => ({ type: 'check_out', time: a.check_out_time, name: a.users?.first_name })) || [])
+      ].sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime()).slice(0, 6)
+      
+      setActivityFeed(activities)
+
+      // 6. ข้อมูลกราฟ 7 วันย้อนหลัง
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(today.getDate() - 6);
+      const startGte = sevenDaysAgo.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+
+      const { data: weeklyAttendance } = await supabase
+        .from('attendance')
+        .select('action_date')
+        .eq('company_id', companyId)
+        .gte('action_date', startGte)
+
+      const weekChart = [];
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(today.getDate() - i);
+        const dateStr = d.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+        const shortDate = d.toLocaleDateString('th-TH', { weekday: 'short', day: 'numeric' });
+        
+        const count = weeklyAttendance?.filter(a => a.action_date === dateStr).length || 0;
+        weekChart.push({ name: shortDate, 'มาทำงาน': count });
+      }
+      setWeeklyData(weekChart)
+
+      const { count: otTodayCount } = await supabase
+        .from('ot_requests')
         .select('*', { count: 'exact', head: true })
         .eq('company_id', companyId)
         .eq('status', 'approved')
-        .lte('start_date', todayStr)
-        .gte('end_date', todayStr)
-
-      const { count: pendingCount } = await supabase
-        .from('leaves')
-        .select('*', { count: 'exact', head: true })
-        .eq('company_id', companyId)
-        .eq('status', 'pending')
+        .eq('request_date', todayStr)
 
       setStats({
-        totalEmployees: employeeCount || 0,
+        totalEmployees: employeeCount,
         presentToday: presentCount,
         lateToday: lateCount,
-        onLeaveToday: leaveCount || 0,
-        pendingLeaves: pendingCount || 0,
+        absentToday: absentCount,
+        onLeaveToday: leaveCount,
+        pendingLeaves: pendingLeaveCount,
+        otToday: otTodayCount || 0,
+        pendingOTs: pendingOTCount,
       })
+
     } catch (error) {
       console.error('Error fetching dashboard stats:', error)
     } finally {
@@ -96,98 +212,295 @@ export default function AnalyticsDashboard() {
     }
   }
 
+  // สีสำหรับ Donut Chart
+  const COLORS = ['#10b981', '#f59e0b', '#ef4444', '#3b82f6'];
+  const pieData = [
+    { name: 'ตรงเวลา', value: stats.presentToday - stats.lateToday },
+    { name: 'มาสาย', value: stats.lateToday },
+    { name: 'ขาดงาน', value: stats.absentToday },
+    { name: 'ลางาน', value: stats.onLeaveToday },
+  ].filter(item => item.value > 0) // ซ่อนค่าที่เป็น 0
+
   if (isLoading) {
-    return <div className="p-4 text-slate-500 font-medium">กำลังโหลดข้อมูลภาพรวม...</div>
+    return (
+      <div className="flex items-center justify-center h-[80vh]">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+      </div>
+    )
   }
 
   return (
-    <div>
+    <div className="pb-10 max-w-7xl mx-auto animate-fade-in">
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">แดชบอร์ดภาพรวม (Analytics Overview)</h1>
-          <p className="text-slate-500 text-sm">
-            ข้อมูลประจำวันที่ {new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}
+          <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Executive Dashboard</h1>
+          <p className="text-slate-500 text-sm mt-1">
+            ภาพรวมประจำวันที่ {new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}
           </p>
         </div>
         <button
           onClick={fetchDashboardStats}
-          className="px-4 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg text-sm font-medium transition-colors shadow-sm flex items-center gap-2"
+          className="px-4 py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg text-sm font-bold transition-colors shadow-sm flex items-center gap-2"
         >
-          🔄 รีเฟรชข้อมูล
+          🔄 อัปเดตข้อมูล
         </button>
       </div>
 
-      {/* สรุปการ์ดสถิติ 5 ช่อง */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-slate-500 text-sm font-medium">พนักงานทั้งหมด</span>
-            <span className="p-2 bg-indigo-50 text-indigo-600 rounded-lg text-lg">👥</span>
+      {/* --- ส่วนที่ 1: การ์ดสรุปตัวเลข (KPIs) แบบ Modern SaaS --- */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+        
+        {/* 1. พนักงานทั้งหมด */}
+        <Link href="/employees" className="relative overflow-hidden bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-lg hover:border-indigo-300 hover:-translate-y-1 transition-all group block">
+          <div className="flex justify-between items-start mb-2">
+            <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center text-xl shadow-sm border border-indigo-100">
+              👥
+            </div>
+            <span className="text-slate-300 group-hover:text-indigo-500 transition-colors">↗</span>
           </div>
-          <div className="text-3xl font-bold text-slate-800">{stats.totalEmployees}</div>
-          <span className="text-xs text-slate-400">คนในระบบ</span>
+          <div className="mt-3">
+            <div className="text-slate-500 text-xs font-bold mb-1 uppercase tracking-wider">พนักงานทั้งหมด</div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-extrabold text-slate-800">{stats.totalEmployees}</span>
+              <span className="text-xs font-medium text-slate-400">คน</span>
+            </div>
+          </div>
+          <div className="absolute -bottom-4 -right-4 text-7xl opacity-[0.03] group-hover:scale-110 group-hover:opacity-[0.05] transition-all duration-300 pointer-events-none">👥</div>
+        </Link>
+
+        {/* 2. มาทำงาน */}
+        <Link href="/attendance" className="relative overflow-hidden bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-lg hover:border-emerald-300 hover:-translate-y-1 transition-all group block">
+          <div className="flex justify-between items-start mb-2">
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center text-xl shadow-sm border border-emerald-100">
+              ✅
+            </div>
+            <span className="text-slate-300 group-hover:text-emerald-500 transition-colors">↗</span>
+          </div>
+          <div className="mt-3">
+            <div className="text-slate-500 text-xs font-bold mb-1 uppercase tracking-wider">มาทำงาน</div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-extrabold text-emerald-600">{stats.presentToday}</span>
+              <span className="text-xs font-medium text-slate-400">คน</span>
+            </div>
+          </div>
+          <div className="absolute -bottom-4 -right-4 text-7xl opacity-[0.03] group-hover:scale-110 group-hover:opacity-[0.05] transition-all duration-300 pointer-events-none">✅</div>
+        </Link>
+
+        {/* 3. สาย */}
+        <Link href="/attendance" className="relative overflow-hidden bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-lg hover:border-amber-300 hover:-translate-y-1 transition-all group block">
+          <div className="flex justify-between items-start mb-2">
+            <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center text-xl shadow-sm border border-amber-100">
+              ⏰
+            </div>
+            <span className="text-slate-300 group-hover:text-amber-500 transition-colors">↗</span>
+          </div>
+          <div className="mt-3">
+            <div className="text-slate-500 text-xs font-bold mb-1 uppercase tracking-wider">เข้าสาย</div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-extrabold text-amber-500">{stats.lateToday}</span>
+              <span className="text-xs font-medium text-slate-400">คน</span>
+            </div>
+          </div>
+          <div className="absolute -bottom-4 -right-4 text-7xl opacity-[0.03] group-hover:scale-110 group-hover:opacity-[0.05] transition-all duration-300 pointer-events-none">⏰</div>
+        </Link>
+
+        {/* 4. ขาดงาน */}
+        <Link href="/attendance" className="relative overflow-hidden bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-lg hover:border-rose-300 hover:-translate-y-1 transition-all group block">
+          <div className="flex justify-between items-start mb-2">
+            <div className="w-10 h-10 rounded-xl bg-rose-50 flex items-center justify-center text-xl shadow-sm border border-rose-100">
+              ❌
+            </div>
+            <span className="text-slate-300 group-hover:text-rose-500 transition-colors">↗</span>
+          </div>
+          <div className="mt-3">
+            <div className="text-slate-500 text-xs font-bold mb-1 uppercase tracking-wider">ขาดงาน</div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-extrabold text-rose-500">{stats.absentToday}</span>
+              <span className="text-xs font-medium text-slate-400">คน</span>
+            </div>
+          </div>
+          <div className="absolute -bottom-4 -right-4 text-7xl opacity-[0.03] group-hover:scale-110 group-hover:opacity-[0.05] transition-all duration-300 pointer-events-none">❌</div>
+        </Link>
+
+        {/* 5. ลางาน */}
+        <Link href="/leaves" className="relative overflow-hidden bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-lg hover:border-blue-300 hover:-translate-y-1 transition-all group block">
+          <div className="flex justify-between items-start mb-2">
+            <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-xl shadow-sm border border-blue-100">
+              🏖️
+            </div>
+            <span className="text-slate-300 group-hover:text-blue-500 transition-colors">↗</span>
+          </div>
+          <div className="mt-3">
+            <div className="text-slate-500 text-xs font-bold mb-1 uppercase tracking-wider">ลางาน</div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-extrabold text-blue-500">{stats.onLeaveToday}</span>
+              <span className="text-xs font-medium text-slate-400">คน</span>
+            </div>
+          </div>
+          <div className="absolute -bottom-4 -right-4 text-7xl opacity-[0.03] group-hover:scale-110 group-hover:opacity-[0.05] transition-all duration-300 pointer-events-none">🏖️</div>
+        </Link>
+
+        {/* 6. OT วันนี้ */}
+        <Link href="/ot" className="relative overflow-hidden bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-lg hover:border-purple-300 hover:-translate-y-1 transition-all group block">
+          <div className="flex justify-between items-start mb-2">
+            <div className="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center text-xl shadow-sm border border-purple-100">
+              💸
+            </div>
+            <span className="text-slate-300 group-hover:text-purple-500 transition-colors">↗</span>
+          </div>
+          <div className="mt-3">
+            <div className="text-slate-500 text-xs font-bold mb-1 uppercase tracking-wider">ทำโอทีวันนี้</div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-extrabold text-purple-600">{stats.otToday}</span>
+              <span className="text-xs font-medium text-slate-400">คน</span>
+            </div>
+          </div>
+          <div className="absolute -bottom-4 -right-4 text-7xl opacity-[0.03] group-hover:scale-110 group-hover:opacity-[0.05] transition-all duration-300 pointer-events-none">💸</div>
+        </Link>
+
+      </div>
+
+      {/* --- ส่วนที่ 2: กราฟ (Data Visualization) และ ฟีดความเคลื่อนไหว --- */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+        {/* กราฟโดนัท: สัดส่วนการมาทำงานวันนี้ */}
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+          <h2 className="text-sm font-bold text-slate-800 mb-4">สัดส่วนสถานะพนักงานวันนี้</h2>
+          <div className="h-48 w-full">
+            {pieData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={pieData} innerRadius={50} outerRadius={70} paddingAngle={3} dataKey="value">
+                    {pieData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip />
+                  <Legend verticalAlign="bottom" height={36} iconType="circle" />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex h-full items-center justify-center text-slate-400 text-sm">ยังไม่มีข้อมูลวันนี้</div>
+            )}
+          </div>
         </div>
 
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-slate-500 text-sm font-medium">มาทำงานวันนี้</span>
-            <span className="p-2 bg-emerald-50 text-emerald-600 rounded-lg text-lg">✅</span>
+        {/* กราฟแท่ง: สถิติ 7 วันย้อนหลัง */}
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm lg:col-span-2">
+          <h2 className="text-sm font-bold text-slate-800 mb-4">จำนวนคนมาทำงาน 7 วันย้อนหลัง</h2>
+          <div className="h-48 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={weeklyData} margin={{ top: 5, right: 20, left: -25, bottom: 0 }}>
+                <XAxis dataKey="name" tick={{fontSize: 12, fill: '#64748b'}} tickLine={false} axisLine={false} />
+                <YAxis tick={{fontSize: 12, fill: '#64748b'}} tickLine={false} axisLine={false} />
+                <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}} />
+                <Bar dataKey="มาทำงาน" fill="#6366f1" radius={[4, 4, 0, 0]} maxBarSize={40} />
+              </BarChart>
+            </ResponsiveContainer>
           </div>
-          <div className="text-3xl font-bold text-emerald-600">{stats.presentToday}</div>
-          <span className="text-xs text-slate-400">ลงเวลาเข้างานแล้ว</span>
-        </div>
-
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-slate-500 text-sm font-medium">เข้าสายวันนี้</span>
-            <span className="p-2 bg-amber-50 text-amber-600 rounded-lg text-lg">⏰</span>
-          </div>
-          <div className="text-3xl font-bold text-amber-600">{stats.lateToday}</div>
-          <span className="text-xs text-slate-400">หลังเวลาที่กำหนด</span>
-        </div>
-
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-slate-500 text-sm font-medium">ลาวันนี้</span>
-            <span className="p-2 bg-blue-50 text-blue-600 rounded-lg text-lg">🏖️</span>
-          </div>
-          <div className="text-3xl font-bold text-blue-600">{stats.onLeaveToday}</div>
-          <span className="text-xs text-slate-400">อนุมัติแล้ว</span>
-        </div>
-
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-slate-500 text-sm font-medium">ใบลารออนุมัติ</span>
-            <span className="p-2 bg-rose-50 text-rose-600 rounded-lg text-lg">📑</span>
-          </div>
-          <div className="text-3xl font-bold text-rose-600">{stats.pendingLeaves}</div>
-          <span className="text-xs text-slate-400">รอดำเนินการ</span>
         </div>
       </div>
 
-      {/* ทางลัดไปยังหน้าจัดการต่างๆ */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-          <h2 className="text-lg font-bold text-slate-800 mb-2">📅 การลงเวลาวันนี้</h2>
-          <p className="text-slate-500 text-sm mb-4">ตรวจสอบรายชื่อพนักงานที่ลงเวลาเข้า-ออกงานในวันนี้แบบละเอียด</p>
-          <Link 
-            href="/attendance"
-            className="inline-flex items-center gap-2 text-indigo-600 hover:text-indigo-700 font-medium text-sm"
-          >
-            ดูประวัติลงเวลาทั้งหมด →
-          </Link>
+      {/* --- ส่วนที่ 3: ตารางรายชื่อ Actionable (รายการที่ต้องจัดการ) --- */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        {/* รายชื่อคนมาสาย และ ขาดงาน */}
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm lg:col-span-1">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-sm font-bold text-slate-800">⚠️ รายชื่อมาสาย / ขาดงาน</h2>
+            <span className="bg-rose-100 text-rose-700 text-xs font-bold px-2 py-0.5 rounded-full">{lateAbsentList.length} รายการ</span>
+          </div>
+          <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
+            {lateAbsentList.length === 0 ? (
+              <p className="text-center text-slate-400 text-sm py-4">ยอดเยี่ยม! วันนี้ไม่มีพนักงานขาดหรือสาย</p>
+            ) : (
+              lateAbsentList.map((item, idx) => (
+                <div key={idx} className="flex justify-between items-center p-3 bg-slate-50 border border-slate-100 rounded-lg">
+                  <div>
+                    <div className="text-sm font-bold text-slate-800">{item.user?.first_name} {item.user?.last_name}</div>
+                    <div className="text-xs text-slate-500">{item.user?.department || 'ไม่ระบุแผนก'}</div>
+                  </div>
+                  {item.type === 'late' ? (
+                    <div className="text-right">
+                      <span className="text-xs font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded-md">สาย {item.mins} นาที</span>
+                    </div>
+                  ) : (
+                    <div className="text-right">
+                      <span className="text-xs font-bold text-rose-600 bg-rose-50 px-2 py-1 rounded-md">ขาดงาน</span>
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
         </div>
 
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-          <h2 className="text-lg font-bold text-slate-800 mb-2">📝 รายการอนุมัติการลา</h2>
-          <p className="text-slate-500 text-sm mb-4">มีใบลารอดำเนินการ {stats.pendingLeaves} รายการ สามารถเข้าไปพิจารณาอนุมัติได้ทันที</p>
-          <Link 
-            href="/leaves"
-            className="inline-flex items-center gap-2 text-indigo-600 hover:text-indigo-700 font-medium text-sm"
-          >
-            ไปที่หน้าจัดการการลา →
-          </Link>
+        {/* รายการรออนุมัติ (Leave & OT) */}
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm lg:col-span-1">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-sm font-bold text-slate-800">📑 รอดำเนินการด่วน</h2>
+            <span className="bg-indigo-100 text-indigo-700 text-xs font-bold px-2 py-0.5 rounded-full">{stats.pendingLeaves + stats.pendingOTs} รายการ</span>
+          </div>
+          <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
+            {pendingApprovals.length === 0 ? (
+              <p className="text-center text-slate-400 text-sm py-4">ไม่มีรายการรออนุมัติ</p>
+            ) : (
+              pendingApprovals.map((req, idx) => (
+                <div key={idx} className="flex justify-between items-center p-3 bg-slate-50 border border-slate-100 rounded-lg">
+                  <div>
+                    <div className="text-sm font-bold text-slate-800">{req.users?.first_name} {req.users?.last_name}</div>
+                    <div className="text-xs text-slate-500 mt-0.5">
+                      {req.reqType === 'leave' ? (
+                        <span className="text-blue-600 font-bold bg-blue-50 px-1.5 py-0.5 rounded">ยื่นลา: {req.leave_type}</span>
+                      ) : (
+                        <span className="text-purple-600 font-bold bg-purple-50 px-1.5 py-0.5 rounded">ขอ OT: {req.start_time?.substring(0,5)}-{req.end_time?.substring(0,5)}</span>
+                      )}
+                    </div>
+                  </div>
+                  <Link 
+                    href={req.reqType === 'leave' ? '/leaves' : '/ot'} 
+                    className="text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg transition-colors border border-indigo-100"
+                  >
+                    ตรวจสอบ
+                  </Link>
+                </div>
+              ))
+            )}
+          </div>
+          {(stats.pendingLeaves + stats.pendingOTs > 5) && (
+             <div className="mt-3 text-center">
+                <span className="text-xs text-slate-400 font-medium">มีรายการอื่นอีก รอดำเนินการในหน้าจัดการ</span>
+             </div>
+          )}
         </div>
+
+        {/* Activity Feed (Live Log) */}
+        <div className="bg-slate-800 p-5 rounded-xl border border-slate-700 shadow-sm lg:col-span-1 text-slate-200">
+          <h2 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+            </span>
+            ความเคลื่อนไหวล่าสุด
+          </h2>
+          <div className="space-y-4 max-h-64 overflow-y-auto pr-1">
+            {activityFeed.length === 0 ? (
+              <p className="text-center text-slate-500 text-sm py-4">ยังไม่มีความเคลื่อนไหวในระบบวันนี้</p>
+            ) : (
+              activityFeed.map((act, idx) => (
+                <div key={idx} className="flex gap-3 text-sm">
+                  <div className="text-slate-400 font-mono text-xs pt-0.5 whitespace-nowrap">
+                    {new Date(act.time).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.
+                  </div>
+                  <div>
+                    {act.type === 'check_in' ? (
+                      <span><span className="text-emerald-400 font-bold">{act.name}</span> ตอกบัตรเข้างาน</span>
+                    ) : (
+                      <span><span className="text-rose-400 font-bold">{act.name}</span> ตอกบัตรออกงาน</span>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
       </div>
     </div>
   )

@@ -107,6 +107,8 @@ export default function LeavePage() {
       .insert([
         {
           user_id: userDbId,
+          company_id: userCompanyId,
+          leave_type_id: selectedLeaveInfo?.id,
           leave_type: leaveType,
           start_date: startDate,
           end_date: endDate,

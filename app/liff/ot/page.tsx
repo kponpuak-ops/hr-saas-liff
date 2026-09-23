@@ -63,6 +63,7 @@ export default function OTRequestPage() {
       .insert([
         {
           user_id: userDbId,
+          company_id: userCompanyId,
           request_date: requestDate,
           start_time: startTime,
           end_time: endTime,
