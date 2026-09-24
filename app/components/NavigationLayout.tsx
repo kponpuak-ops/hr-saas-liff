@@ -147,7 +147,7 @@ export default function NavigationLayout({ children }: { children: React.ReactNo
           <Link href="/" className={getMenuClass('/', true)}>
             <span className="w-6 text-center text-lg">📊</span> ภาพรวมระบบ
           </Link>
-          <Link href="/attendance" className={getMenuClass('/attendance')}>
+          <Link href="/attendance" className={getMenuClass('/attendance', true)}>
             <span className="w-6 text-center text-lg">📅</span> ประวัติลงเวลา
           </Link>
           <Link href="/admin/attendance-requests" className={getMenuClass('/attendance-requests')}>
