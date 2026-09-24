@@ -482,6 +482,16 @@ export default function LiffAttendancePage() {
             <span className="text-2xl">⏳</span>
             <span className="text-xs text-center">ประวัติ OT</span>
           </Link>
+          {/* ปุ่มขอปรับปรุงเวลาทำงาน */}
+        <Link 
+          href="/liff/attendance-request" 
+          className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center justify-center gap-2 hover:shadow-md transition-all active:scale-95"
+        >
+          <div className="w-12 h-12 bg-amber-50 rounded-full flex items-center justify-center text-2xl shadow-inner border border-amber-100">
+            ⏱️
+          </div>
+          <span className="text-xs font-bold text-slate-700">ขอปรับปรุงเวลา</span>
+        </Link>
           {/* 💡 เพิ่มปุ่มประวัติลงเวลา ให้แสดงผลแบบเต็มบรรทัด (col-span-2) */}
           <Link className="col-span-2 p-4 bg-white border border-slate-200 rounded-2xl text-slate-700 font-bold text-sm shadow-sm hover:bg-slate-50 flex items-center justify-center gap-3 transition-colors" href="/liff/attendance-history">
             <span className="text-2xl">📅</span>
