@@ -118,6 +118,7 @@ export default function ManagerApprovalsPage() {
     let updateData: any = { status: newStatus }
     const isAdmin = managerInfo.role === 'admin' || managerInfo.role === 'super_admin'
 
+    // บันทึกชื่อผู้อนุมัติตาม Role
     if (managerInfo.role === 'manager' && action === 'approve') {
       newStatus = 'manager_approved'
       updateData = { status: newStatus, manager_id: managerInfo.id }
@@ -132,45 +133,81 @@ export default function ManagerApprovalsPage() {
     const apiEndpoint = type === 'leave' ? '/api/notify-leave' : type === 'ot' ? '/api/notify-ot' : '/api/notify-attendance'
 
     try {
-      // 💡 ลอจิกพิเศษ: หาก HR/Admin กดอนุมัติ "แก้เวลา" ผ่านมือถือ ต้องไปอัปเดตตารางเวลาทำงานด้วย
+      // 💡 ลอจิกพิเศษ: หาก HR/Admin กดอนุมัติ "แก้เวลา" ผ่านมือถือ ต้องอัปเดตเวลาด้วย
       if (type === 'time' && isAdmin && action === 'approve') {
         const req = pendingTime.find(r => r.id === id)
+        
         if (req) {
-          const { data: existingAtt } = await supabase.from('attendance').select('id').eq('user_id', req.user_id).eq('action_date', req.request_date).single()
-          if (existingAtt) {
-            const payload: any = { is_manual: true }
-            if (req.check_in_time) payload.check_in_time = req.check_in_time
-            if (req.check_out_time) payload.check_out_time = req.check_out_time
-            await supabase.from('attendance').update(payload).eq('id', existingAtt.id)
-          } else {
-            await supabase.from('attendance').insert([{
-              company_id: req.company_id, user_id: req.user_id, action_date: req.request_date,
-              check_in_time: req.check_in_time, check_out_time: req.check_out_time, is_manual: true
-            }])
+          // ฟังก์ชันแปลงเวลา
+          const createTimestamp = (dateStr: string, timeStr: string) => {
+            const time = timeStr.length === 5 ? `${timeStr}:00` : timeStr
+            return `${dateStr}T${time}+07:00`
           }
+
+          // 💡 ใช้ .maybeSingle() แทน .single() เพื่อป้องกัน Error กรณีไม่เคยมีบันทึกเวลาของวันนั้น
+          const { data: existingAtt, error: fetchErr } = await supabase
+            .from('attendance')
+            .select('id')
+            .eq('user_id', req.user_id)
+            .eq('action_date', req.request_date)
+            .maybeSingle()
+
+          if (fetchErr) throw new Error('ตรวจสอบข้อมูลเวลาเดิมไม่สำเร็จ: ' + fetchErr.message)
+
+          let dbError;
+
+          if (existingAtt) {
+            // อัปเดตข้อมูลเดิม
+            const payload: any = { is_manual: true }
+            if (req.check_in_time) payload.check_in_time = createTimestamp(req.request_date, req.check_in_time)
+            if (req.check_out_time) payload.check_out_time = createTimestamp(req.request_date, req.check_out_time)
+            
+            const { error } = await supabase.from('attendance').update(payload).eq('id', existingAtt.id)
+            dbError = error
+          } else {
+            // สร้างข้อมูลใหม่ของวันนั้น
+            const payload: any = {
+              company_id: req.company_id, 
+              user_id: req.user_id, 
+              action_date: req.request_date, 
+              is_manual: true
+            }
+            if (req.check_in_time) payload.check_in_time = createTimestamp(req.request_date, req.check_in_time)
+            if (req.check_out_time) payload.check_out_time = createTimestamp(req.request_date, req.check_out_time)
+            
+            const { error } = await supabase.from('attendance').insert([payload])
+            dbError = error
+          }
+
+          // 💡 ดักจับ Error ตรงนี้ ถ้าบันทึกไม่ลง จะได้ไม่เปลี่ยนสถานะเป็นอนุมัติ
+          if (dbError) throw new Error('ปรับปรุงเวลาในฐานข้อมูลไม่สำเร็จ: ' + dbError.message)
         }
       }
 
-      // อัปเดตสถานะคำขอ
-      const { error } = await supabase.from(table).update(updateData).eq('id', id)
+      // อัปเดตสถานะคำขอขั้นสุดท้าย
+      const { error: updateReqErr } = await supabase.from(table).update(updateData).eq('id', id)
+      
+      if (updateReqErr) throw new Error('อัปเดตสถานะคำขอไม่สำเร็จ: ' + updateReqErr.message)
 
-      if (!error) {
-        fetch(apiEndpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id, status: newStatus }),
-        }).catch(err => console.error('Notify Error:', err))
+      // แจ้งเตือน LINE และลบออกจากหน้าจอ
+      fetch(apiEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, status: newStatus }),
+      }).catch(err => console.error('Notify Error:', err))
 
-        if (type === 'leave') setPendingLeaves(prev => prev.filter(item => item.id !== id))
-        else if (type === 'ot') setPendingOTs(prev => prev.filter(item => item.id !== id))
-        else setPendingTime(prev => prev.filter(item => item.id !== id))
-      } else {
-        alert('เกิดข้อผิดพลาด: ' + error.message)
-      }
+      if (type === 'leave') setPendingLeaves(prev => prev.filter(item => item.id !== id))
+      else if (type === 'ot') setPendingOTs(prev => prev.filter(item => item.id !== id))
+      else setPendingTime(prev => prev.filter(item => item.id !== id))
+      
+      alert('✅ ดำเนินการและอัปเดตข้อมูลเรียบร้อยแล้ว')
+
     } catch (err: any) {
-      alert('เกิดข้อผิดพลาดระบบ: ' + err.message)
+      // 💡 แสดง Error ให้ชัดเจนแทนการแอบพัง
+      alert('เกิดข้อผิดพลาด: ' + err.message)
+    } finally {
+      setIsProcessing(null)
     }
-    setIsProcessing(null)
   }
 
   const formatDate = (dateStr: string) => {
