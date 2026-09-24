@@ -127,23 +127,24 @@ export default function LiffAttendanceRequestPage() {
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
+          {/* 💡 เปลี่ยนเป็น flex คู่กับ min-w-0 แบบเดียวกับหน้า OT และ ลางาน */}
+          <div className="flex gap-3">
+            <div className="flex-1 min-w-0">
               <label className="block text-xs font-bold text-slate-700 mb-1">เวลาเข้างาน</label>
               <input 
                 type="time" 
                 value={checkInTime}
                 onChange={e => setCheckInTime(e.target.value)}
-                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full min-w-0 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
-            <div>
+            <div className="flex-1 min-w-0">
               <label className="block text-xs font-bold text-slate-700 mb-1">เวลาออกงาน</label>
               <input 
                 type="time" 
                 value={checkOutTime}
                 onChange={e => setCheckOutTime(e.target.value)}
-                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full min-w-0 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
           </div>

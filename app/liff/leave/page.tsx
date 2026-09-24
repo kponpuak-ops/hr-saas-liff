@@ -217,25 +217,26 @@ export default function LeavePage() {
             )}
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
+          {/* 💡 เปลี่ยนเป็น flex และใส่ min-w-0 */}
+          <div className="flex gap-3">
+            <div className="flex-1 min-w-0">
               <label className="block text-sm font-bold text-slate-700 mb-1">วันที่เริ่มลา *</label>
               <input 
                 type="date" 
                 required
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                className="w-full p-3 border border-slate-300 rounded-xl font-medium focus:ring-2 focus:ring-indigo-500 outline-none text-sm bg-white"
+                className="w-full min-w-0 p-3 border border-slate-300 rounded-xl font-medium focus:ring-2 focus:ring-indigo-500 outline-none text-sm bg-white"
               />
             </div>
-            <div>
+            <div className="flex-1 min-w-0">
               <label className="block text-sm font-bold text-slate-700 mb-1">ถึงวันที่ *</label>
               <input 
                 type="date" 
                 required
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
-                className="w-full p-3 border border-slate-300 rounded-xl font-medium focus:ring-2 focus:ring-indigo-500 outline-none text-sm bg-white"
+                className="w-full min-w-0 p-3 border border-slate-300 rounded-xl font-medium focus:ring-2 focus:ring-indigo-500 outline-none text-sm bg-white"
               />
             </div>
           </div>

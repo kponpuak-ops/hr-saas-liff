@@ -141,25 +141,26 @@ export default function OTRequestPage() {
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
+          {/* 💡 เปลี่ยนจาก grid เป็น flex และใส่ min-w-0 */}
+          <div className="flex gap-3">
+            <div className="flex-1 min-w-0">
               <label className="block text-sm font-bold text-slate-700 mb-1">เวลาเริ่ม *</label>
               <input 
                 type="time" 
                 required
                 value={startTime}
                 onChange={(e) => setStartTime(e.target.value)}
-                className="w-full p-3 border border-slate-300 rounded-xl font-medium focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                className="w-full min-w-0 p-3 border border-slate-300 rounded-xl font-medium focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
               />
             </div>
-            <div>
+            <div className="flex-1 min-w-0">
               <label className="block text-sm font-bold text-slate-700 mb-1">เวลาสิ้นสุด *</label>
               <input 
                 type="time" 
                 required
                 value={endTime}
                 onChange={(e) => setEndTime(e.target.value)}
-                className="w-full p-3 border border-slate-300 rounded-xl font-medium focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                className="w-full min-w-0 p-3 border border-slate-300 rounded-xl font-medium focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
               />
             </div>
           </div>
