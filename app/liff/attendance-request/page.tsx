@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import liff from '@line/liff'
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
 
@@ -16,23 +17,27 @@ export default function LiffAttendanceRequestPage() {
   const [reason, setReason] = useState('')
 
   useEffect(() => {
-    fetchUserData()
+    initLiffAndFetchUser()
   }, [])
 
-  const fetchUserData = async () => {
+  // 💡 เปลี่ยนมาใช้ liff.init() ในการดึงข้อมูล user แทนแบบเดิม
+  const initLiffAndFetchUser = async () => {
     setLoading(true)
     try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) return
+      await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID! })
+      if (liff.isLoggedIn()) {
+        const profile = await liff.getProfile()
+        const { data: user } = await supabase
+          .from('users')
+          .select('id, company_id, first_name, last_name')
+          .eq('line_user_id', profile.userId)
+          .single()
 
-      const { data: user } = await supabase
-        .from('users')
-        .select('id, company_id, first_name, last_name')
-        .eq('auth_id', session.user.id)
-        .single()
-
-      if (user) {
-        setUserInfo(user)
+        if (user) {
+          setUserInfo(user)
+        }
+      } else {
+        liff.login()
       }
     } catch (error) {
       console.error(error)
@@ -44,6 +49,12 @@ export default function LiffAttendanceRequestPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
+    // 💡 ดักจับ error กรณีโหลดข้อมูล user ไม่ทัน
+    if (!userInfo) {
+      alert('ไม่พบข้อมูลผู้ใช้งาน กรุณารอสักครู่แล้วลองใหม่อีกครั้ง')
+      return
+    }
+
     if (!checkInTime && !checkOutTime) {
       alert('กรุณาระบุเวลาเข้างาน หรือ เวลาออกงาน ที่ต้องการแก้ไขอย่างน้อย 1 ช่องครับ')
       return
