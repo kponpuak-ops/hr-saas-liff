@@ -30,7 +30,7 @@ export default function LiffAttendanceRequestPage() {
 
       const { data: user } = await supabase
         .from('users')
-        .select('id, company_id')
+        .select('id, company_id, first_name, last_name')
         .eq('auth_id', session.user.id)
         .single()
 
@@ -80,11 +80,19 @@ export default function LiffAttendanceRequestPage() {
         status: 'pending'
       }
 
-      const { error } = await supabase.from('attendance_requests').insert([payload])
+      // เปลี่ยนบรรทัดนี้: ให้ .select().single() เพื่อเอา ID ที่เพิ่งสร้าง
+      const { data: newReq, error } = await supabase.from('attendance_requests').insert([payload]).select().single()
       
       if (error) throw error
 
-      alert('ส่งคำขอแก้ไขเวลาเรียบร้อยแล้ว กรุณารอ HR ตรวจสอบครับ')
+      // 💡 ยิง API ไปแจ้งเตือน
+      fetch('/api/notify-attendance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: newReq.id, status: 'pending' })
+      })
+
+      alert('ส่งคำขอแก้ไขเวลาเรียบร้อยแล้ว กรุณารอหัวหน้าตรวจสอบครับ')
       
       // ล้างฟอร์มและโหลดประวัติใหม่
       setCheckInTime('')
@@ -162,7 +170,7 @@ export default function LiffAttendanceRequestPage() {
             <textarea 
               required
               rows={2}
-              placeholder="เช่น ลืมสแกนนิ้ว, ไปพบลูกค้าที่พารากอน, แบตมือถือหมด..."
+              placeholder="เช่น ลืมลงเวลา, ไปพบลูกค้าที่พารากอน, แบตมือถือหมด..."
               value={reason}
               onChange={e => setReason(e.target.value)}
               className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500"

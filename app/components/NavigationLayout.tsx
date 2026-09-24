@@ -156,6 +156,12 @@ export default function NavigationLayout({ children }: { children: React.ReactNo
             <span className="text-xl">📅</span> ประวัติลงเวลา
           </Link>
           <Link
+            href="/admin/attendance-requests"
+            className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium ${pathname.includes('/attendance-requests') ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+          >
+            <span className="text-xl">⏱️</span> คำขอแก้เวลา
+          </Link>
+          <Link
             href="/leaves"
             className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium ${pathname === '/leaves' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
           >
