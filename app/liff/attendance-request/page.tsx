@@ -15,14 +15,11 @@ export default function LiffAttendanceRequestPage() {
   const [checkOutTime, setCheckOutTime] = useState('')
   const [reason, setReason] = useState('')
 
-  // State สำหรับประวัติคำขอ
-  const [requestHistory, setRequestHistory] = useState<any[]>([])
-
   useEffect(() => {
-    fetchUserDataAndHistory()
+    fetchUserData()
   }, [])
 
-  const fetchUserDataAndHistory = async () => {
+  const fetchUserData = async () => {
     setLoading(true)
     try {
       const { data: { session } } = await supabase.auth.getSession()
@@ -36,24 +33,12 @@ export default function LiffAttendanceRequestPage() {
 
       if (user) {
         setUserInfo(user)
-        fetchHistory(user.id)
       }
     } catch (error) {
       console.error(error)
     } finally {
       setLoading(false)
     }
-  }
-
-  const fetchHistory = async (userId: number) => {
-    const { data } = await supabase
-      .from('attendance_requests')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-      .limit(10)
-    
-    if (data) setRequestHistory(data)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -80,38 +65,26 @@ export default function LiffAttendanceRequestPage() {
         status: 'pending'
       }
 
-      // เปลี่ยนบรรทัดนี้: ให้ .select().single() เพื่อเอา ID ที่เพิ่งสร้าง
+      // บันทึกคำขอลงตาราง attendance_requests
       const { data: newReq, error } = await supabase.from('attendance_requests').insert([payload]).select().single()
       
       if (error) throw error
 
-      // 💡 ยิง API ไปแจ้งเตือน
+      // ยิง API ไปแจ้งเตือน
       fetch('/api/notify-attendance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: newReq.id, status: 'pending' })
-      })
+      }).catch(err => console.error('Notify Error:', err))
 
       alert('ส่งคำขอแก้ไขเวลาเรียบร้อยแล้ว กรุณารอหัวหน้าตรวจสอบครับ')
       
-      // ล้างฟอร์มและโหลดประวัติใหม่
-      setCheckInTime('')
-      setCheckOutTime('')
-      setReason('')
-      fetchHistory(userInfo.id)
+      // เมื่อส่งเสร็จ ให้เด้งกลับไปที่หน้าหลัก LIFF
+      window.location.href = '/liff'
       
     } catch (error: any) {
       alert('เกิดข้อผิดพลาด: ' + error.message)
-    } finally {
       setSubmitting(false)
-    }
-  }
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'approved': return <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-[10px] font-bold">✅ อนุมัติแล้ว</span>
-      case 'rejected': return <span className="bg-rose-100 text-rose-700 px-2 py-0.5 rounded text-[10px] font-bold">❌ ไม่อนุมัติ</span>
-      default: return <span className="bg-amber-100 text-amber-700 px-2 py-0.5 rounded text-[10px] font-bold">⏳ รอตรวจสอบ</span>
     }
   }
 
@@ -129,7 +102,7 @@ export default function LiffAttendanceRequestPage() {
         </Link>
       </div>
 
-      <form onSubmit={handleSubmit} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm mb-6">
+      <form onSubmit={handleSubmit} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
         <div className="space-y-4">
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">📅 วันที่ต้องการแก้ไข *</label>
@@ -180,42 +153,12 @@ export default function LiffAttendanceRequestPage() {
           <button 
             type="submit" 
             disabled={submitting}
-            className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md transition-all text-sm disabled:opacity-50"
+            className="w-full py-3 mt-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md transition-all text-sm disabled:opacity-50"
           >
             {submitting ? 'กำลังส่งข้อมูล...' : 'ส่งคำขอแก้ไขเวลา'}
           </button>
         </div>
       </form>
-
-      {/* ประวัติคำขอ */}
-      <h2 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">📜 ประวัติคำขอแก้ไขเวลา</h2>
-      <div className="space-y-3">
-        {requestHistory.length === 0 ? (
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 text-center text-xs text-slate-400">
-            ยังไม่มีประวัติการส่งคำขอ
-          </div>
-        ) : (
-          requestHistory.map((req, idx) => (
-            <div key={idx} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-2">
-              <div className="flex justify-between items-start">
-                <span className="text-sm font-bold text-slate-800">
-                  {new Date(req.request_date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })}
-                </span>
-                {getStatusBadge(req.status)}
-              </div>
-              
-              <div className="flex gap-4 text-xs font-medium text-slate-600 bg-slate-50 p-2 rounded-lg border border-slate-100">
-                {req.check_in_time && <span>เข้า: <strong className="text-indigo-600">{req.check_in_time.substring(0, 5)}</strong></span>}
-                {req.check_out_time && <span>ออก: <strong className="text-indigo-600">{req.check_out_time.substring(0, 5)}</strong></span>}
-              </div>
-              
-              <div className="text-xs text-slate-500 break-words">
-                <span className="font-bold">เหตุผล:</span> {req.reason}
-              </div>
-            </div>
-          ))
-        )}
-      </div>
     </div>
   )
 }
