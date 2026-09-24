@@ -24,7 +24,6 @@ export default function OTRequestPage() {
         if (liff.isLoggedIn()) {
           const profile = await liff.getProfile()
           
-          // ดึงข้อมูลพนักงาน รวมถึง company_id 
           const { data: userData } = await supabase
             .from('users')
             .select('id, company_id')
@@ -57,7 +56,6 @@ export default function OTRequestPage() {
     setIsSubmitting(true)
     setMessage('')
 
-    // บันทึกคำขอ OT พร้อมดึงข้อมูลกลับมาเพื่อเอา ID ไปส่งแจ้งเตือน
     const { data: newOT, error } = await supabase
       .from('ot_requests')
       .insert([
@@ -79,7 +77,6 @@ export default function OTRequestPage() {
     } else {
       setMessage('ยื่นขอ OT เรียบร้อยแล้ว! รอตรวจสอบ')
       
-      // เรียก API ส่งแจ้งเตือน โดยเปลี่ยน otId เป็น id ให้ตรงกับที่ API รอรับ
       fetch('/api/notify-ot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -89,7 +86,6 @@ export default function OTRequestPage() {
         }),
       }).catch((err) => console.error('Notification error:', err))
 
-      // รีเซ็ตฟอร์ม
       setRequestDate('')
       setStartTime('')
       setEndTime('')
@@ -137,30 +133,30 @@ export default function OTRequestPage() {
               required
               value={requestDate}
               onChange={(e) => setRequestDate(e.target.value)}
-              className="w-full p-3 border border-slate-300 rounded-xl font-medium focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+              className="w-full px-3 py-2.5 bg-white border border-slate-300 rounded-xl font-medium focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
             />
           </div>
 
-          {/* 💡 เปลี่ยนจาก grid เป็น flex และใส่ min-w-0 */}
-          <div className="flex gap-3">
-            <div className="flex-1 min-w-0">
-              <label className="block text-sm font-bold text-slate-700 mb-1">เวลาเริ่ม *</label>
+          {/* 💡 ท่าไม้ตายสำหรับ iOS: บังคับ Grid 2 ช่อง + min-w-0 + ลด px */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="min-w-0">
+              <label className="block text-sm font-bold text-slate-700 mb-1 truncate">เวลาเริ่ม *</label>
               <input 
                 type="time" 
                 required
                 value={startTime}
                 onChange={(e) => setStartTime(e.target.value)}
-                className="w-full min-w-0 p-3 border border-slate-300 rounded-xl font-medium focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                className="w-full min-w-0 px-2 py-2.5 bg-white border border-slate-300 rounded-xl font-medium focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
               />
             </div>
-            <div className="flex-1 min-w-0">
-              <label className="block text-sm font-bold text-slate-700 mb-1">เวลาสิ้นสุด *</label>
+            <div className="min-w-0">
+              <label className="block text-sm font-bold text-slate-700 mb-1 truncate">เวลาสิ้นสุด *</label>
               <input 
                 type="time" 
                 required
                 value={endTime}
                 onChange={(e) => setEndTime(e.target.value)}
-                className="w-full min-w-0 p-3 border border-slate-300 rounded-xl font-medium focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                className="w-full min-w-0 px-2 py-2.5 bg-white border border-slate-300 rounded-xl font-medium focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
               />
             </div>
           </div>
@@ -173,7 +169,7 @@ export default function OTRequestPage() {
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               placeholder="ระบุงานที่จะทำในช่วง OT..."
-              className="w-full p-3 border border-slate-300 rounded-xl font-medium focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+              className="w-full px-3 py-2.5 bg-white border border-slate-300 rounded-xl font-medium focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
             />
           </div>
 
