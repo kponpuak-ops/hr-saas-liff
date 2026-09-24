@@ -49,14 +49,27 @@ export default function AttendanceHistoryPage() {
       await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID! })
       if (liff.isLoggedIn()) {
         const profile = await liff.getProfile()
+        
+        // 💡 แยกดึงข้อมูล User ก่อน เพื่อป้องกัน Error 400
         const { data: userData } = await supabase
           .from('users')
-          .select('*, company_settings(*)')
+          .select('*')
           .eq('line_user_id', profile.userId)
           .single()
 
         if (userData) {
-          setUser(userData)
+          // 💡 แยกดึงข้อมูล Settings ตามหลัง
+          const { data: settingsData } = await supabase
+            .from('company_settings')
+            .select('*')
+            .eq('company_id', userData.company_id)
+            .single()
+
+          // ประกอบร่างข้อมูลให้โครงสร้างตรงกับที่ต้องการ
+          setUser({ 
+            ...userData, 
+            company_settings: settingsData ? [settingsData] : [] 
+          })
         }
       } else {
         liff.login()
@@ -129,7 +142,6 @@ export default function AttendanceHistoryPage() {
       if (!isWeekend) workDaysCount++
 
       const att = attRecords.find(a => a.action_date === dateStr)
-      // เช็กว่าวันนี้อยู่ในช่วงลาหรือไม่
       const leave = leaveRecords.find(l => dateStr >= l.start_date && dateStr <= l.end_date)
 
       let status = 'future'
@@ -167,7 +179,6 @@ export default function AttendanceHistoryPage() {
       })
     }
 
-    // คำนวณสรุป
     const hasDiligent = (lateMins === 0 && absents === 0 && leavesCount === 0)
     
     setSummary({
@@ -181,7 +192,6 @@ export default function AttendanceHistoryPage() {
       hasDiligentAllowance: hasDiligent
     })
 
-    // เรียงจากล่าสุดไปเก่าสุด
     setCalendarDays(days.reverse())
   }
 
