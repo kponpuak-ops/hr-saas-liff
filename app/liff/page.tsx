@@ -360,201 +360,208 @@ export default function LiffAttendancePage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4 max-w-md mx-auto flex flex-col justify-between pb-8">
-      <div>
-        <div className="bg-indigo-600 text-white rounded-3xl p-6 shadow-lg mb-6 relative">
-          {(user?.role === 'manager' || user?.role === 'admin') && (
-            <div className="absolute top-4 right-4 bg-white/20 px-2 py-1 rounded-md text-[10px] font-bold tracking-wider uppercase">
-              {user.role}
-            </div>
-          )}
-          <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-full bg-white/20 flex items-center justify-center font-bold text-xl overflow-hidden border-2 border-white/40">
-              {user?.avatar_url ? (
-                <img src={user.avatar_url} alt="" className="w-full h-full object-cover" />
-              ) : (
-                user?.first_name?.[0] || '👤'
-              )}
-            </div>
-            <div>
-              <h1 className="text-lg font-bold">{user?.first_name} {user?.last_name}</h1>
-              <p className="text-xs text-indigo-100">{user?.position || 'พนักงาน'} • ID: {user?.employee_id || '-'}</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-4">
-          <div className="flex justify-between items-center border-b pb-3">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">โหมดลงเวลา</span>
-            <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
-              companySettings?.has_shifts ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
-            }`}>
-              {companySettings?.has_shifts ? '🏭 ระบบมีกะการทำงาน' : '🏢 เวลาฟิกซ์มาตรฐาน'}
-            </span>
-          </div>
-
-          {activeRecord ? (
-            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-center space-y-1">
-              <span className="text-xs text-emerald-600 font-bold">🟢 สถานะ: กำลังปฏิบัติงาน</span>
-              {activeRecord.work_shifts && (
-                <p className="text-sm font-bold text-slate-800">
-                  กะ: {activeRecord.work_shifts.shift_name} ({activeRecord.work_shifts.start_time?.substring(0, 5)} - {activeRecord.work_shifts.end_time?.substring(0, 5)} น.)
-                </p>
-              )}
-              <p className="text-xs text-slate-500">
-                เข้างานเมื่อ: {new Date(activeRecord.check_in_time).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.
-              </p>
-            </div>
-          ) : isCompletedToday ? (
-            <div className="bg-slate-100 border border-slate-200 rounded-xl p-4 text-center">
-              <span className="text-xs text-slate-500 font-bold">✅ ลงเวลาเข้า-ออกงาน ครบถ้วนแล้ววันนี้</span>
-            </div>
-          ) : (
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-center">
-              <span className="text-xs text-amber-700 font-bold">⏰ ยังไม่ได้ลงเวลาเข้างาน</span>
-            </div>
-          )}
-
-          {companySettings?.has_shifts && !activeRecord && (
-            <div className="pt-2">
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">เลือกกะการทำงานที่จะเข้า:</label>
-              <select
-                className="w-full p-3 border border-slate-300 rounded-xl text-sm font-semibold bg-white outline-none focus:ring-2 focus:ring-indigo-500"
-                value={selectedShiftId || ''}
-                onChange={(e) => setSelectedShiftId(Number(e.target.value))}
-              >
-                {shifts.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.shift_name} ({s.start_time?.substring(0, 5)} - {s.end_time?.substring(0, 5)} น.)
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-        </div>
-
-        {companySettings?.require_photo && !isCompletedToday && (
-          <div className="mt-4 bg-white rounded-2xl p-6 border border-slate-200 shadow-sm text-center">
-            <h3 className="text-sm font-bold text-slate-800 mb-3">📸 ถ่ายรูปยืนยันตัวตน</h3>
-            {photoPreview ? (
-              <div className="relative w-full h-48 mb-3 rounded-xl overflow-hidden border-2 border-indigo-200">
-                <img src={photoPreview} alt="Selfie Preview" className="w-full h-full object-cover" />
-                <button 
-                  onClick={() => { setPhotoFile(null); setPhotoPreview(null); }}
-                  className="absolute top-2 right-2 bg-rose-500 text-white rounded-full w-8 h-8 flex items-center justify-center font-bold shadow-md"
-                >
-                  ✕
-                </button>
-              </div>
-            ) : (
-              <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-slate-300 rounded-xl cursor-pointer bg-slate-50 hover:bg-slate-100 transition-colors">
-                <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                  <span className="text-3xl mb-2">🤳</span>
-                  <p className="text-xs font-bold text-slate-500">แตะเพื่อเปิดกล้องหน้า</p>
-                </div>
-                <input 
-                  type="file" 
-                  accept="image/*" 
-                  capture="user" 
-                  onChange={handlePhotoChange} 
-                  className="hidden" 
-                />
-              </label>
-            )}
-            <p className="text-[10px] text-slate-400 mt-2">* ระบบจะตรวจสอบพิกัด GPS อัตโนมัติเมื่อกดลงเวลา</p>
-          </div>
-        )}
-
-        <div className="mt-4 grid grid-cols-2 gap-3">
-          <Link className="p-4 bg-white border border-slate-200 rounded-2xl text-slate-700 font-bold text-sm shadow-sm hover:bg-slate-50 flex flex-col items-center gap-2 transition-colors" href="/liff/leave">
-            <span className="text-2xl">📝</span>
-            <span className="text-xs">ยื่นใบลา</span>
-          </Link>
-          <Link className="p-4 bg-white border border-slate-200 rounded-2xl text-slate-700 font-bold text-sm shadow-sm hover:bg-slate-50 flex flex-col items-center gap-2 transition-colors" href="/liff/history">
-            <span className="text-2xl">📋</span>
-            <span className="text-xs text-center">ประวัติการลา</span>
-          </Link>
-          <Link className="p-4 bg-white border border-slate-200 rounded-2xl text-slate-700 font-bold text-sm shadow-sm hover:bg-slate-50 flex flex-col items-center gap-2 transition-colors" href="/liff/ot">
-            <span className="text-2xl">⏱️</span>
-            <span className="text-xs text-center">ยื่นขอ OT</span>
-          </Link>
-          <Link className="p-4 bg-white border border-slate-200 rounded-2xl text-slate-700 font-bold text-sm shadow-sm hover:bg-slate-50 flex flex-col items-center gap-2 transition-colors" href="/liff/ot-history">
-            <span className="text-2xl">⏳</span>
-            <span className="text-xs text-center">ประวัติ OT</span>
-          </Link>
-          
-          {/* ปุ่มขอปรับปรุงเวลาทำงาน */}
-          <Link className="p-4 bg-white border border-slate-200 rounded-2xl shadow-sm hover:bg-slate-50 flex flex-col items-center justify-center gap-2 transition-colors" href="/liff/attendance-request">
-            <span className="text-2xl">⏱️</span>
-            <span className="text-xs font-bold text-slate-700 text-center">ขอปรับปรุงเวลา</span>
-          </Link>
-
-          {/* 💡 ปุ่มประวัติแก้เวลา (ปุ่มที่ 6 เพื่อให้เต็ม Grid พอดี) */}
-          <Link className="p-4 bg-white border border-slate-200 rounded-2xl shadow-sm hover:bg-slate-50 flex flex-col items-center justify-center gap-2 transition-colors" href="/liff/attendance-request-history">
-            <span className="text-2xl">📜</span>
-            <span className="text-xs font-bold text-slate-700 text-center">ประวัติแก้เวลา</span>
-          </Link>
-
-          {/* ปุ่มแบบเต็มบรรทัด (col-span-2) */}
-          <Link className="col-span-2 p-4 bg-white border border-slate-200 rounded-2xl text-slate-700 font-bold text-sm shadow-sm hover:bg-slate-50 flex items-center justify-center gap-3 transition-colors" href="/liff/attendance-history">
-            <span className="text-2xl">📅</span>
-            <span>ประวัติการลงเวลาของฉัน</span>
-          </Link>
-          <Link className="col-span-2 p-4 bg-indigo-50 border border-indigo-100 rounded-2xl text-indigo-800 font-bold text-sm shadow-sm hover:bg-indigo-100 flex items-center justify-center gap-3 transition-colors" href="/liff/payslip">
-            <span className="text-2xl">🧾</span>
-            <span>ดูสลิปเงินเดือนของฉัน</span>
-          </Link>
-        </div>
-        
+    <div className="min-h-screen bg-slate-50 p-4 max-w-md mx-auto pb-12 animate-fade-in">
+      
+      {/* 1. ส่วนหัว: ข้อมูลพนักงาน */}
+      <div className="bg-indigo-600 text-white rounded-3xl p-6 shadow-lg mb-4 relative">
         {(user?.role === 'manager' || user?.role === 'admin') && (
-           <div className="mt-3">
-             <Link href="/liff/approvals" className="w-full bg-slate-800 text-white rounded-2xl p-4 flex items-center justify-between hover:bg-slate-700 transition shadow-sm">
-                <div className="flex items-center gap-3">
-                  <span className="text-2xl">📥</span>
-                  <div className="flex flex-col">
-                    <span className="font-bold text-sm">ตรวจสอบคำขอ (รออนุมัติ)</span>
-                    <span className="text-[10px] text-slate-300">จัดการใบลาและโอทีของลูกทีม</span>
-                  </div>
-                </div>
-                {pendingApprovalsCount > 0 ? (
-                  <span className="bg-rose-500 text-white text-xs font-bold px-2.5 py-1 rounded-full animate-pulse shadow-md">
-                    {pendingApprovalsCount} รายการ
-                  </span>
-                ) : (
-                  <span className="text-slate-400 text-xl">›</span>
-                )}
-             </Link>
-           </div>
+          <div className="absolute top-4 right-4 bg-white/20 px-2 py-1 rounded-md text-[10px] font-bold tracking-wider uppercase">
+            {user.role}
+          </div>
         )}
-
+        <div className="flex items-center gap-4">
+          <div className="w-14 h-14 rounded-full bg-white/20 flex items-center justify-center font-bold text-xl overflow-hidden border-2 border-white/40">
+            {user?.avatar_url ? (
+              <img src={user.avatar_url} alt="" className="w-full h-full object-cover" />
+            ) : (
+              user?.first_name?.[0] || '👤'
+            )}
+          </div>
+          <div>
+            <h1 className="text-lg font-bold">{user?.first_name} {user?.last_name}</h1>
+            <p className="text-xs text-indigo-100">{user?.position || 'พนักงาน'} • ID: {user?.employee_id || '-'}</p>
+          </div>
+        </div>
       </div>
 
-      <div className="mt-8">
+      {/* 2. กล่องสถานะการลงเวลา */}
+      <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm space-y-4 mb-4">
+        <div className="flex justify-between items-center border-b pb-3">
+          <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">โหมดลงเวลา</span>
+          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+            companySettings?.has_shifts ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+          }`}>
+            {companySettings?.has_shifts ? '🏭 ระบบมีกะการทำงาน' : '🏢 เวลาฟิกซ์มาตรฐาน'}
+          </span>
+        </div>
+
+        {activeRecord ? (
+          <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-center space-y-1">
+            <span className="text-xs text-emerald-600 font-bold">🟢 สถานะ: กำลังปฏิบัติงาน</span>
+            {activeRecord.work_shifts && (
+              <p className="text-sm font-bold text-slate-800">
+                กะ: {activeRecord.work_shifts.shift_name} ({activeRecord.work_shifts.start_time?.substring(0, 5)} - {activeRecord.work_shifts.end_time?.substring(0, 5)} น.)
+              </p>
+            )}
+            <p className="text-xs text-slate-500">
+              เข้างานเมื่อ: {new Date(activeRecord.check_in_time).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.
+            </p>
+          </div>
+        ) : isCompletedToday ? (
+          <div className="bg-slate-100 border border-slate-200 rounded-xl p-4 text-center">
+            <span className="text-xs text-slate-500 font-bold">✅ ลงเวลาเข้า-ออกงาน ครบถ้วนแล้ววันนี้</span>
+          </div>
+        ) : (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-center">
+            <span className="text-xs text-amber-700 font-bold">⏰ ยังไม่ได้ลงเวลาเข้างาน</span>
+          </div>
+        )}
+
+        {companySettings?.has_shifts && !activeRecord && (
+          <div className="pt-2">
+            <label className="block text-xs font-bold text-slate-700 mb-1.5">เลือกกะการทำงานที่จะเข้า:</label>
+            <select
+              className="w-full p-3 border border-slate-300 rounded-xl text-sm font-semibold bg-white outline-none focus:ring-2 focus:ring-indigo-500"
+              value={selectedShiftId || ''}
+              onChange={(e) => setSelectedShiftId(Number(e.target.value))}
+            >
+              {shifts.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.shift_name} ({s.start_time?.substring(0, 5)} - {s.end_time?.substring(0, 5)} น.)
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+      </div>
+
+      {/* 3. กล้องถ่ายรูป (ถ้ามี) */}
+      {companySettings?.require_photo && !isCompletedToday && (
+        <div className="mb-4 bg-white rounded-2xl p-5 border border-slate-200 shadow-sm text-center">
+          <h3 className="text-sm font-bold text-slate-800 mb-3">📸 ถ่ายรูปยืนยันตัวตน</h3>
+          {photoPreview ? (
+            <div className="relative w-full h-48 mb-3 rounded-xl overflow-hidden border-2 border-indigo-200">
+              <img src={photoPreview} alt="Selfie Preview" className="w-full h-full object-cover" />
+              <button 
+                onClick={() => { setPhotoFile(null); setPhotoPreview(null); }}
+                className="absolute top-2 right-2 bg-rose-500 text-white rounded-full w-8 h-8 flex items-center justify-center font-bold shadow-md"
+              >
+                ✕
+              </button>
+            </div>
+          ) : (
+            <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-slate-300 rounded-xl cursor-pointer bg-slate-50 hover:bg-slate-100 transition-colors">
+              <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                <span className="text-3xl mb-2">🤳</span>
+                <p className="text-xs font-bold text-slate-500">แตะเพื่อเปิดกล้องหน้า</p>
+              </div>
+              <input 
+                type="file" 
+                accept="image/*" 
+                capture="user" 
+                onChange={handlePhotoChange} 
+                className="hidden" 
+              />
+            </label>
+          )}
+          <p className="text-[10px] text-slate-400 mt-2">* ระบบจะตรวจสอบพิกัด GPS อัตโนมัติเมื่อกดลงเวลา</p>
+        </div>
+      )}
+
+      {/* 💡 4. ปุ่มตอกบัตร (ย้ายขึ้นมาตรงนี้!) */}
+      <div className="mb-8">
         {activeRecord ? (
           <button
             onClick={() => handleAttendance('out')}
             disabled={submitting}
-            className="w-full py-4 bg-rose-600 hover:bg-rose-700 active:scale-95 text-white font-bold rounded-2xl text-lg shadow-lg shadow-rose-200 transition-all disabled:opacity-50"
+            className="w-full py-4 bg-rose-600 hover:bg-rose-700 active:scale-95 text-white font-bold rounded-2xl text-lg shadow-lg shadow-rose-200 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
           >
-            {submitting ? 'กำลังบันทึกข้อมูล...' : '🔴 ลงเวลาออกงาน'}
+            {submitting ? 'กำลังบันทึกข้อมูล...' : <><span>🔴</span> ลงเวลาออกงาน</>}
           </button>
         ) : isCompletedToday ? (
           <button
             disabled
-            className="w-full py-4 bg-slate-300 text-slate-500 font-bold rounded-2xl text-lg cursor-not-allowed"
+            className="w-full py-4 bg-slate-200 text-slate-400 font-bold rounded-2xl text-base cursor-not-allowed flex items-center justify-center gap-2 border border-slate-300"
           >
-            ลงเวลาครบแล้วสำหรับวันนี้
+            ✅ ลงเวลาครบแล้วสำหรับวันนี้
           </button>
         ) : (
           <button
             onClick={() => handleAttendance('in')}
             disabled={submitting || (companySettings?.has_shifts && !selectedShiftId)}
-            className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold rounded-2xl text-lg shadow-lg shadow-emerald-200 transition-all disabled:opacity-50"
+            className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold rounded-2xl text-lg shadow-lg shadow-emerald-200 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
           >
-            {submitting ? 'กำลังบันทึกข้อมูล...' : '🟢 ลงเวลาเข้างาน'}
+            {submitting ? 'กำลังบันทึกข้อมูล...' : <><span>🟢</span> ลงเวลาเข้างาน</>}
           </button>
         )}
       </div>
+
+      {/* 5. เมนูบริการอื่นๆ */}
+      <div>
+        <h2 className="text-sm font-bold text-slate-800 mb-3 px-2 flex items-center gap-2">
+          📌 บริการ HR
+        </h2>
+        <div className="grid grid-cols-2 gap-3">
+          <Link className="p-4 bg-white border border-slate-200 rounded-2xl text-slate-700 font-bold text-sm shadow-sm hover:shadow-md active:scale-95 flex flex-col items-center gap-2 transition-all" href="/liff/leave">
+            <span className="text-2xl">📝</span>
+            <span className="text-xs">ยื่นใบลา</span>
+          </Link>
+          <Link className="p-4 bg-white border border-slate-200 rounded-2xl text-slate-700 font-bold text-sm shadow-sm hover:shadow-md active:scale-95 flex flex-col items-center gap-2 transition-all" href="/liff/history">
+            <span className="text-2xl">📋</span>
+            <span className="text-xs text-center">ประวัติการลา</span>
+          </Link>
+          <Link className="p-4 bg-white border border-slate-200 rounded-2xl text-slate-700 font-bold text-sm shadow-sm hover:shadow-md active:scale-95 flex flex-col items-center gap-2 transition-all" href="/liff/ot">
+            <span className="text-2xl">⏱️</span>
+            <span className="text-xs text-center">ยื่นขอ OT</span>
+          </Link>
+          <Link className="p-4 bg-white border border-slate-200 rounded-2xl text-slate-700 font-bold text-sm shadow-sm hover:shadow-md active:scale-95 flex flex-col items-center gap-2 transition-all" href="/liff/ot-history">
+            <span className="text-2xl">⏳</span>
+            <span className="text-xs text-center">ประวัติ OT</span>
+          </Link>
+          <Link className="p-4 bg-white border border-slate-200 rounded-2xl shadow-sm hover:shadow-md active:scale-95 flex flex-col items-center justify-center gap-2 transition-all" href="/liff/attendance-request">
+            <div className="w-10 h-10 bg-amber-50 rounded-full flex items-center justify-center text-xl shadow-inner border border-amber-100">⏱️</div>
+            <span className="text-xs font-bold text-slate-700 text-center">ขอปรับปรุงเวลา</span>
+          </Link>
+          <Link className="p-4 bg-white border border-slate-200 rounded-2xl shadow-sm hover:shadow-md active:scale-95 flex flex-col items-center justify-center gap-2 transition-all" href="/liff/attendance-request-history">
+            <div className="w-10 h-10 bg-blue-50 rounded-full flex items-center justify-center text-xl shadow-inner border border-blue-100">📜</div>
+            <span className="text-xs font-bold text-slate-700 text-center">ประวัติแก้เวลา</span>
+          </Link>
+          <Link className="col-span-2 p-4 bg-white border border-slate-200 rounded-2xl text-slate-700 font-bold text-sm shadow-sm hover:shadow-md active:scale-95 flex items-center justify-center gap-3 transition-all" href="/liff/attendance-history">
+            <span className="text-2xl">📅</span>
+            <span>ประวัติการลงเวลาของฉัน</span>
+          </Link>
+          <Link className="col-span-2 p-4 bg-indigo-50 border border-indigo-200 rounded-2xl text-indigo-800 font-bold text-sm shadow-sm hover:shadow-md active:scale-95 flex items-center justify-center gap-3 transition-all" href="/liff/payslip">
+            <span className="text-2xl">🧾</span>
+            <span>ดูสลิปเงินเดือนของฉัน</span>
+          </Link>
+        </div>
+      </div>
+      
+      {/* 6. เมนูสำหรับหัวหน้างาน (จะเห็นเฉพาะ Manager/Admin) */}
+      {(user?.role === 'manager' || user?.role === 'admin') && (
+          <div className="mt-6 pt-6 border-t border-slate-200">
+            <h2 className="text-sm font-bold text-slate-800 mb-3 px-2 flex items-center gap-2">
+              👑 การจัดการสำหรับหัวหน้า
+            </h2>
+            <Link href="/liff/approvals" className="w-full bg-slate-800 text-white rounded-2xl p-4 flex items-center justify-between hover:bg-slate-700 active:scale-95 transition-all shadow-md">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">📥</span>
+                <div className="flex flex-col">
+                  <span className="font-bold text-sm">ตรวจสอบคำขอ (รออนุมัติ)</span>
+                  <span className="text-[10px] text-slate-300">จัดการใบลา, โอที, แก้เวลา</span>
+                </div>
+              </div>
+              {pendingApprovalsCount > 0 ? (
+                <span className="bg-rose-500 text-white text-xs font-bold px-2.5 py-1 rounded-full animate-pulse shadow-md">
+                  {pendingApprovalsCount} รายการ
+                </span>
+              ) : (
+                <span className="text-slate-400 text-xl">›</span>
+              )}
+            </Link>
+          </div>
+      )}
+
     </div>
   )
 }
