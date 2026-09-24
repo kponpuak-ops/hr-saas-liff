@@ -154,6 +154,7 @@ export default function AuditLogPage() {
       is_manual: 'แก้ไขโดย HR (Manual)',
       user_id: 'รหัสพนักงาน',
       diligence_steps: 'ตั้งค่าเบี้ยขยัน (ขั้นบันได)',
+      status: 'สถานะพนักงาน',
     }
     return map[field] || field
   }
@@ -196,6 +197,8 @@ export default function AuditLogPage() {
   }
 
  const formatVal = (v: any) => {
+    if (v === 'active') return '🟢 ทำงานอยู่'
+    if (v === 'inactive') return '🔴 พ้นสภาพ/ลาออก'
     if (v === null || v === undefined || v === '') return 'ว่าง'
     if (typeof v === 'boolean') return v ? 'ใช่ (เปิด)' : 'ไม่ (ปิด)'
     

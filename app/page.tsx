@@ -52,12 +52,13 @@ export default function AnalyticsDashboard() {
       if (!currentUser?.company_id) return
       const companyId = currentUser.company_id
 
-      // 1. ข้อมูลพนักงานทั้งหมด (ไม่รวม admin)
+      // 1. ข้อมูลพนักงานทั้งหมด (รวม admin)
       const { data: employees } = await supabase
         .from('users')
         .select('id, first_name, last_name, department, position')
         .eq('company_id', companyId)
         .neq('role', 'super_admin')
+        .eq('status', 'active')
         
       const employeeCount = employees?.length || 0
 
