@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import liff from '@line/liff'
 import { supabase } from '@/lib/supabase'
+import Link from 'next/link'
 
 export default function EmployeePayslipLiff() {
   const [employee, setEmployee] = useState<any>(null)
@@ -12,7 +13,6 @@ export default function EmployeePayslipLiff() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // 💡 State สำหรับตัวกรองปี
   const [selectedYear, setSelectedYear] = useState<string>(new Date().getFullYear().toString())
   const [availableYears, setAvailableYears] = useState<string[]>([])
 
@@ -63,17 +63,14 @@ export default function EmployeePayslipLiff() {
       const fetchedSlips = slips || []
       setPayslips(fetchedSlips)
 
-      // 💡 ดึง "ปี" ทั้งหมดจากสลิปที่มี เพื่อนำมาสร้าง Dropdown
       const years = Array.from(new Set(fetchedSlips.map(slip => {
         const dateStr = slip.payroll_cycles?.payment_date || slip.created_at
         return new Date(dateStr).getFullYear().toString()
       })))
       
-      // เรียงปีจากล่าสุดไปเก่าสุด
       years.sort((a, b) => Number(b) - Number(a))
       setAvailableYears(years)
 
-      // ถ้าปีปัจจุบันไม่มีสลิป ให้เปลี่ยนไปเลือกปีล่าสุดที่มีข้อมูลแทน
       const currentYear = new Date().getFullYear().toString()
       if (years.length > 0 && !years.includes(currentYear)) {
         setSelectedYear(years[0])
@@ -106,7 +103,6 @@ export default function EmployeePayslipLiff() {
     return new Date(dateStr).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' })
   }
 
-  // 💡 กรองสลิปให้แสดงเฉพาะปีที่เลือก
   const filteredPayslips = payslips.filter(slip => {
     const dateStr = slip.payroll_cycles?.payment_date || slip.created_at
     return new Date(dateStr).getFullYear().toString() === selectedYear
@@ -146,22 +142,28 @@ export default function EmployeePayslipLiff() {
             <div className="flex justify-between items-center mb-4 px-2">
               <h2 className="text-sm font-bold text-slate-500">🧾 ประวัติสลิปเงินเดือน</h2>
               
-              {/* 💡 ตัวเลือกปี (Dropdown) */}
-              {availableYears.length > 0 && (
-                <select 
-                  value={selectedYear}
-                  onChange={(e) => setSelectedYear(e.target.value)}
-                  className="bg-white border border-slate-300 text-slate-700 text-xs font-bold rounded-lg px-3 py-1.5 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
-                >
-                  {availableYears.map(year => (
-                    <option key={year} value={year}>ปี {year}</option>
-                  ))}
-                </select>
-              )}
+              <div className="flex items-center gap-2">
+                {/* 💡 ตัวเลือกปี */}
+                {availableYears.length > 0 && (
+                  <select 
+                    value={selectedYear}
+                    onChange={(e) => setSelectedYear(e.target.value)}
+                    className="bg-white border border-slate-300 text-slate-700 text-xs font-bold rounded-lg px-3 py-1.5 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
+                  >
+                    {availableYears.map(year => (
+                      <option key={year} value={year}>ปี {year}</option>
+                    ))}
+                  </select>
+                )}
+                {/* 💡 ปุ่มกลับหน้าหลัก */}
+                <Link href="/liff" className="bg-white border border-indigo-200 text-indigo-600 text-xs font-bold rounded-lg px-3 py-1.5 shadow-sm hover:bg-indigo-50 transition">
+                  กลับหน้าหลัก
+                </Link>
+              </div>
             </div>
 
             {filteredPayslips.length === 0 ? (
-              <div className="text-center p-8 bg-white rounded-2xl border border-slate-200 text-slate-500">
+              <div className="text-center p-8 bg-white rounded-2xl border border-slate-200 text-slate-500 shadow-sm">
                 ยังไม่มีสลิปเงินเดือนของปี {selectedYear}
               </div>
             ) : (
