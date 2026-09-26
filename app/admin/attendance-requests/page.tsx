@@ -22,7 +22,7 @@ export default function AdminAttendanceRequestsPage() {
 
       const { data: user } = await supabase
         .from('users')
-        .select('id, company_id, role, department')
+        .select('id, company_id, role, department, first_name, last_name, auth_id')
         .eq('auth_id', session.user.id)
         .single()
 
@@ -73,32 +73,90 @@ export default function AdminAttendanceRequestsPage() {
     if (!confirm(`ยืนยันการอนุมัติขั้นสุดท้ายและปรับปรุงเวลาให้ "${req.users.first_name}" ใช่หรือไม่?\nระบบจะทำการอัปเดตเวลาลงงานให้อัตโนมัติ`)) return
 
     try {
+      // 💡 1. ดึงข้อมูลการตั้งค่าองค์กรและกะการทำงาน มาเพื่อคำนวณสาย
+      const { data: settings } = await supabase
+        .from('company_settings')
+        .select('*')
+        .eq('company_id', req.company_id)
+        .single()
+
       const { data: existingAtt } = await supabase
         .from('attendance')
-        .select('id')
+        .select('*, work_shifts(start_time, end_time, late_buffer_minutes, late_deduction_per_minute)')
         .eq('user_id', req.user_id)
         .eq('action_date', req.request_date)
         .single()
 
       let updateError;
+      let actionType = 'UPDATE';
+      let oldDataForLog = null;
+      let newDataForLog = null;
+      let auditRecordId = null;
 
-      // 💡 ฟังก์ชันช่วยแปลง วันที่ + เวลา ให้เป็นรูปแบบ Timestamp ที่ถูกต้อง (Timestamptz)
       const createTimestamp = (dateStr: string, timeStr: string) => {
-        // เติมวินาทีเข้าไปถ้ามีแค่ ชม.:นาที เพื่อป้องกัน Error
         const time = timeStr.length === 5 ? `${timeStr}:00` : timeStr
-        return `${dateStr}T${time}+07:00` // บวกเขตเวลาไทย +07:00
+        return `${dateStr}T${time}+07:00`
+      }
+
+      // 💡 2. ฟังก์ชันคำนวณหักเงิน
+      const calculateDeduction = (checkInStr: string | null, checkOutStr: string | null, recordInfo: any) => {
+          let lateMins = 0;
+          let earlyMins = 0;
+          let deductAmt = 0;
+          
+          if (!settings) return { lateMins, earlyMins, deductAmt };
+
+          const useShift = settings.has_shifts && recordInfo?.work_shifts;
+          const expectedInTime = useShift ? recordInfo.work_shifts.start_time : settings.default_start_time;
+          const expectedOutTime = useShift ? recordInfo.work_shifts.end_time : settings.default_end_time;
+          const buffer = useShift ? recordInfo.work_shifts.late_buffer_minutes : (settings.late_buffer_minutes || 0);
+          const rate = useShift ? recordInfo.work_shifts.late_deduction_per_minute : (settings.late_deduction_per_minute || 0);
+
+          if (checkInStr) {
+             const checkInDateTime = new Date(checkInStr);
+             const expectedIn = new Date(`${req.request_date}T${expectedInTime}+07:00`);
+             const maxAllowedIn = new Date(expectedIn.getTime() + (buffer * 60000));
+             if (checkInDateTime > maxAllowedIn) {
+                lateMins = Math.floor((checkInDateTime.getTime() - expectedIn.getTime()) / 60000);
+             }
+          }
+
+          if (checkOutStr) {
+             const checkOutDateTime = new Date(checkOutStr);
+             const expectedOut = new Date(`${req.request_date}T${expectedOutTime}+07:00`);
+             if (checkOutDateTime < expectedOut) {
+                earlyMins = Math.floor((expectedOut.getTime() - checkOutDateTime.getTime()) / 60000);
+             }
+          }
+
+          deductAmt = (lateMins + earlyMins) * rate;
+          return { lateMins, earlyMins, deductAmt };
       }
 
       if (existingAtt) {
-        // กรณีมีข้อมูลลงเวลาเดิมอยู่แล้ว
+        actionType = 'UPDATE';
+        auditRecordId = existingAtt.id;
+        oldDataForLog = { ...existingAtt };
+        
         const payload: any = { is_manual: true }
         if (req.check_in_time) payload.check_in_time = createTimestamp(req.request_date, req.check_in_time)
         if (req.check_out_time) payload.check_out_time = createTimestamp(req.request_date, req.check_out_time)
 
+        // 💡 3. นำเวลาใหม่ไปคำนวณหักเงิน
+        const targetCheckIn = payload.check_in_time || existingAtt.check_in_time;
+        const targetCheckOut = payload.check_out_time || existingAtt.check_out_time;
+        const { lateMins, earlyMins, deductAmt } = calculateDeduction(targetCheckIn, targetCheckOut, existingAtt);
+        
+        payload.late_minutes = lateMins;
+        payload.early_leave_minutes = earlyMins;
+        payload.deduction_amount = deductAmt;
+
+        newDataForLog = { ...existingAtt, ...payload };
+
         const { error } = await supabase.from('attendance').update(payload).eq('id', existingAtt.id)
         updateError = error
       } else {
-        // กรณีสร้างบันทึกใหม่ของวันนั้น
+        actionType = 'INSERT';
         const payload: any = {
           company_id: req.company_id,
           user_id: req.user_id,
@@ -108,8 +166,20 @@ export default function AdminAttendanceRequestsPage() {
         if (req.check_in_time) payload.check_in_time = createTimestamp(req.request_date, req.check_in_time)
         if (req.check_out_time) payload.check_out_time = createTimestamp(req.request_date, req.check_out_time)
 
-        const { error } = await supabase.from('attendance').insert([payload])
+        // 💡 3. คำนวณหักเงินกรณีสร้างข้อมูลใหม่
+        const { lateMins, earlyMins, deductAmt } = calculateDeduction(payload.check_in_time, payload.check_out_time, null);
+        payload.late_minutes = lateMins;
+        payload.early_leave_minutes = earlyMins;
+        payload.deduction_amount = deductAmt;
+
+        newDataForLog = { ...payload };
+
+        const { data: newAtt, error } = await supabase.from('attendance').insert([payload]).select().single()
         updateError = error
+        if(newAtt) {
+            auditRecordId = newAtt.id;
+            newDataForLog.id = newAtt.id;
+        }
       }
 
       if (updateError) throw updateError
@@ -118,6 +188,16 @@ export default function AdminAttendanceRequestsPage() {
         .from('attendance_requests')
         .update({ status: 'approved', admin_id: currentUser.id })
         .eq('id', req.id)
+        
+      const auditPayload = {
+          table_name: 'attendance',
+          action: actionType,
+          record_id: auditRecordId,
+          old_data: oldDataForLog,
+          new_data: newDataForLog,
+          changed_by: currentUser.auth_id
+      };
+      await supabase.from('audit_logs').insert([auditPayload]);
         
       alert('✅ อนุมัติและปรับปรุงเวลาทำงานเรียบร้อยแล้ว')
       fetchRequests()
@@ -233,7 +313,6 @@ export default function AdminAttendanceRequestsPage() {
                         {req.status === 'rejected' && <span className="bg-rose-100 text-rose-700 px-2.5 py-1 rounded-md text-xs font-bold">ไม่อนุมัติ</span>}
                       </div>
                       
-                      {/* 💡 เพิ่มการแสดงป้ายชื่อผู้อนุมัติแบบหน้าจัดการวันลา */}
                       <div className="mt-2.5 flex flex-col items-center gap-1 text-xs">
                         {req.manager_id && (
                           <div className="flex items-center gap-1.5 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">

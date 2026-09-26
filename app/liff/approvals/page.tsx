@@ -133,6 +133,13 @@ export default function ManagerApprovalsPage() {
         const req = pendingTime.find(r => r.id === id)
         
         if (req) {
+          // 💡 ดึง Settings เพื่อเตรียมคำนวณหักเงิน
+          const { data: settings } = await supabase
+            .from('company_settings')
+            .select('*')
+            .eq('company_id', req.company_id)
+            .single()
+
           const createTimestamp = (dateStr: string, timeStr: string) => {
             const time = timeStr.length === 5 ? `${timeStr}:00` : timeStr
             return `${dateStr}T${time}+07:00`
@@ -140,12 +147,47 @@ export default function ManagerApprovalsPage() {
 
           const { data: existingAtt, error: fetchErr } = await supabase
             .from('attendance')
-            .select('id')
+            .select('*, work_shifts(start_time, end_time, late_buffer_minutes, late_deduction_per_minute)')
             .eq('user_id', req.user_id)
             .eq('action_date', req.request_date)
             .maybeSingle()
 
           if (fetchErr) throw new Error('ตรวจสอบข้อมูลเวลาเดิมไม่สำเร็จ: ' + fetchErr.message)
+
+          // 💡 ฟังก์ชันคำนวณหักเงินเหมือนหน้าเว็บเป๊ะ
+          const calculateDeduction = (checkInStr: string | null, checkOutStr: string | null, recordInfo: any) => {
+            let lateMins = 0;
+            let earlyMins = 0;
+            let deductAmt = 0;
+            
+            if (!settings) return { lateMins, earlyMins, deductAmt };
+
+            const useShift = settings.has_shifts && recordInfo?.work_shifts;
+            const expectedInTime = useShift ? recordInfo.work_shifts.start_time : settings.default_start_time;
+            const expectedOutTime = useShift ? recordInfo.work_shifts.end_time : settings.default_end_time;
+            const buffer = useShift ? recordInfo.work_shifts.late_buffer_minutes : (settings.late_buffer_minutes || 0);
+            const rate = useShift ? recordInfo.work_shifts.late_deduction_per_minute : (settings.late_deduction_per_minute || 0);
+
+            if (checkInStr) {
+               const checkInDateTime = new Date(checkInStr);
+               const expectedIn = new Date(`${req.request_date}T${expectedInTime}+07:00`);
+               const maxAllowedIn = new Date(expectedIn.getTime() + (buffer * 60000));
+               if (checkInDateTime > maxAllowedIn) {
+                  lateMins = Math.floor((checkInDateTime.getTime() - expectedIn.getTime()) / 60000);
+               }
+            }
+
+            if (checkOutStr) {
+               const checkOutDateTime = new Date(checkOutStr);
+               const expectedOut = new Date(`${req.request_date}T${expectedOutTime}+07:00`);
+               if (checkOutDateTime < expectedOut) {
+                  earlyMins = Math.floor((expectedOut.getTime() - checkOutDateTime.getTime()) / 60000);
+               }
+            }
+
+            deductAmt = (lateMins + earlyMins) * rate;
+            return { lateMins, earlyMins, deductAmt };
+          }
 
           let dbError;
           let targetAttId = null;
@@ -155,6 +197,15 @@ export default function ManagerApprovalsPage() {
             const payload: any = { is_manual: true }
             if (req.check_in_time) payload.check_in_time = createTimestamp(req.request_date, req.check_in_time)
             if (req.check_out_time) payload.check_out_time = createTimestamp(req.request_date, req.check_out_time)
+            
+            // นำเวลาใหม่ไปคำนวณหักเงิน
+            const targetCheckIn = payload.check_in_time || existingAtt.check_in_time;
+            const targetCheckOut = payload.check_out_time || existingAtt.check_out_time;
+            const { lateMins, earlyMins, deductAmt } = calculateDeduction(targetCheckIn, targetCheckOut, existingAtt);
+            
+            payload.late_minutes = lateMins;
+            payload.early_leave_minutes = earlyMins;
+            payload.deduction_amount = deductAmt;
             
             const { error } = await supabase.from('attendance').update(payload).eq('id', existingAtt.id)
             dbError = error
@@ -168,6 +219,12 @@ export default function ManagerApprovalsPage() {
             if (req.check_in_time) payload.check_in_time = createTimestamp(req.request_date, req.check_in_time)
             if (req.check_out_time) payload.check_out_time = createTimestamp(req.request_date, req.check_out_time)
             
+            // คำนวณหักเงิน
+            const { lateMins, earlyMins, deductAmt } = calculateDeduction(payload.check_in_time, payload.check_out_time, null);
+            payload.late_minutes = lateMins;
+            payload.early_leave_minutes = earlyMins;
+            payload.deduction_amount = deductAmt;
+            
             const { data: newAtt, error } = await supabase.from('attendance').insert([payload]).select().single()
             dbError = error
             if (newAtt) targetAttId = newAtt.id;
@@ -175,7 +232,7 @@ export default function ManagerApprovalsPage() {
 
           if (dbError) throw new Error('ปรับปรุงเวลาในฐานข้อมูลไม่สำเร็จ: ' + dbError.message)
 
-          // 💡 หัวใจสำคัญ: ตามไปอัปเดตคนแก้ใน Audit Log ที่ Trigger เพิ่งสร้างให้
+          // ประทับตราแอดมินใน Audit Log ที่ Trigger สร้างให้
           if (targetAttId && managerInfo.auth_id) {
             await supabase.from('audit_logs')
               .update({ changed_by: managerInfo.auth_id })
