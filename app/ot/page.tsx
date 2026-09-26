@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { supabase } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase' // 💡 ปรับพาธให้ถูกต้อง (ใช้ @/)
 
 export default function OTAdminPage() {
   const [otRequests, setOtRequests] = useState<any[]>([])
@@ -25,9 +25,10 @@ export default function OTAdminPage() {
       return
     }
 
+    // 💡 ดึง auth_id มาด้วย เพื่อเอาไปใช้บันทึก Audit Log
     const { data: currentUser } = await supabase
       .from('users')
-      .select('id,company_id, role, department')
+      .select('id, company_id, role, department, auth_id')
       .eq('auth_id', session.user.id)
       .single()
 
@@ -69,41 +70,74 @@ export default function OTAdminPage() {
     setIsLoading(false)
   }
 
-  const handleUpdateStatus = async (otId: number, baseStatus: 'approved' | 'rejected') => {
-    let finalStatus: string = baseStatus
-    let updateData: any = { status: finalStatus }
-
-    if (currentUserInfo?.role === 'manager' && baseStatus === 'approved') {
-      finalStatus = 'manager_approved'
-      updateData = { status: finalStatus, manager_id: currentUserInfo.id }
-    } else if (currentUserInfo?.role === 'admin' && baseStatus === 'approved') {
-      updateData = { status: finalStatus, admin_id: currentUserInfo.id }
-    } else if (baseStatus === 'rejected') {
-      if (currentUserInfo?.role === 'manager') updateData.manager_id = currentUserInfo.id
-      if (currentUserInfo?.role === 'admin') updateData.admin_id = currentUserInfo.id
-    }
-
-    const actionText = finalStatus === 'approved' ? 'อนุมัติขั้นสุดท้าย' : finalStatus === 'manager_approved' ? 'อนุมัติส่งต่อ HR' : 'ไม่อนุมัติ'
+  // 💡 เพิ่ม 'canceled' เข้าไปใน type
+  const handleUpdateStatus = async (otId: number, baseStatus: 'approved' | 'rejected' | 'canceled') => {
+    const actionText = baseStatus === 'approved' ? 'อนุมัติ' : baseStatus === 'canceled' ? 'ยกเลิก' : 'ไม่อนุมัติ'
     if (!confirm(`คุณต้องการ ${actionText} รายการ OT นี้ใช่หรือไม่?`)) return;
 
-    const { error } = await supabase
-      .from('ot_requests')
-      .update(updateData)
-      .eq('id', otId)
+    try {
+      // 💡 1. ดึงข้อมูล OT เดิมก่อนอัปเดต เพื่อเก็บลง Audit Log
+      const { data: oldOtData } = await supabase
+        .from('ot_requests')
+        .select('*')
+        .eq('id', otId)
+        .single();
 
-    if (error) {
-      alert('เกิดข้อผิดพลาดในการอัปเดตสถานะ')
-    } else {
-      fetch('/api/notify-ot', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: otId, status: finalStatus }),
-      }).catch((err) => console.error('Notification error:', err))
+      let finalStatus: string = baseStatus
+      let updateData: any = { status: finalStatus }
+
+      if (currentUserInfo?.role === 'manager' && baseStatus === 'approved') {
+        finalStatus = 'manager_approved'
+        updateData = { status: finalStatus, manager_id: currentUserInfo.id }
+      } else if (currentUserInfo?.role === 'admin' && baseStatus === 'approved') {
+        updateData = { status: finalStatus, admin_id: currentUserInfo.id }
+      } else if (baseStatus === 'rejected' || baseStatus === 'canceled') {
+        if (currentUserInfo?.role === 'manager') updateData.manager_id = currentUserInfo.id
+        if (currentUserInfo?.role === 'admin' || currentUserInfo?.role === 'super_admin') updateData.admin_id = currentUserInfo.id
+      }
+
+      // 💡 2. อัปเดตสถานะ OT
+      const { error } = await supabase
+        .from('ot_requests')
+        .update(updateData)
+        .eq('id', otId)
+
+      if (error) throw error;
+
+      // 💡 3. เขียนข้อมูลลง Audit Log ด้วยตัวเอง
+      if (oldOtData && currentUserInfo?.auth_id) {
+        const newOtData = { ...oldOtData, ...updateData };
+        const auditPayload = {
+          table_name: 'ot_requests',
+          action: 'UPDATE',
+          record_id: otId,
+          old_data: oldOtData,
+          new_data: newOtData,
+          changed_by: currentUserInfo.auth_id
+        };
+        await supabase.from('audit_logs').insert([auditPayload]);
+      }
+
+      if (finalStatus !== 'canceled') {
+          fetch('/api/notify-ot', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: otId, status: finalStatus }),
+          }).catch((err) => console.error('Notification error:', err))
+      }
 
       if (selectedOT?.id === otId) {
         setSelectedOT({ ...selectedOT, status: finalStatus })
       }
+      
+      if (finalStatus === 'canceled') {
+          alert('✅ ยกเลิกคำขอ OT เรียบร้อยแล้ว')
+      }
+      
       fetchOTRequests()
+
+    } catch (err: any) {
+      alert('เกิดข้อผิดพลาดในการอัปเดตสถานะ: ' + err.message)
     }
   }
 
@@ -167,6 +201,8 @@ export default function OTAdminPage() {
             <option value="manager_approved">🟡 รอ HR อนุมัติ (ผ่านหัวหน้าแล้ว)</option>
             <option value="approved">✅ อนุมัติเสร็จสิ้น</option>
             <option value="rejected">❌ ไม่อนุมัติ</option>
+            {/* 💡 เพิ่มตัวเลือกกรองสถานะยกเลิก */}
+            <option value="canceled">↩️ ยกเลิกแล้ว</option>
           </select>
         </div>
       </div>
@@ -213,6 +249,8 @@ export default function OTAdminPage() {
                         {item.status === 'manager_approved' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-700">🟡 รอ HR อนุมัติ</span>}
                         {item.status === 'approved' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700">✅ อนุมัติเสร็จสิ้น</span>}
                         {item.status === 'rejected' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-700">❌ ไม่อนุมัติ</span>}
+                        {/* 💡 เพิ่มป้ายสถานะยกเลิก */}
+                        {item.status === 'canceled' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-600 border border-slate-200">↩️ ยกเลิก</span>}
                       </div>
 
                       <div className="mt-2.5 flex flex-col items-center gap-1 text-xs">
@@ -228,7 +266,7 @@ export default function OTAdminPage() {
                         )}
                         {item.admin_id && (
                           <div className="flex items-center gap-1.5 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">
-                            {item.status === 'rejected' ? (
+                            {item.status === 'rejected' || item.status === 'canceled' ? (
                               <span className="text-[10px]">❌</span>
                             ) : (
                               <span className="text-[10px]">✅</span>
@@ -307,7 +345,7 @@ export default function OTAdminPage() {
               </div>
             </div>
 
-            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 flex-wrap">
               {(selectedOT.status === 'pending' || selectedOT.status === 'manager_approved') ? (
                 <>
                   <button
@@ -323,11 +361,27 @@ export default function OTAdminPage() {
                     {currentUserInfo?.role === 'admin' ? '✅ อนุมัติขั้นสุดท้าย' : '✅ อนุมัติส่งต่อ HR'}
                   </button>
                 </>
+              ) : selectedOT.status === 'approved' ? (
+                // 💡 ปุ่มสำหรับยกเลิก OT
+                <div className="w-full flex items-center justify-between">
+                  <span className="text-sm font-bold text-emerald-700 bg-emerald-100 px-3 py-1.5 rounded-lg border border-emerald-200">
+                    ✅ อนุมัติเรียบร้อย
+                  </span>
+                  <button
+                    onClick={() => handleUpdateStatus(selectedOT.id, 'canceled')}
+                    className="px-4 py-2 bg-white border border-slate-300 text-slate-600 hover:bg-slate-100 hover:text-rose-600 hover:border-rose-300 rounded-lg text-sm font-bold transition-colors shadow-sm"
+                  >
+                    ↩️ ยกเลิกคำขอ OT
+                  </button>
+                </div>
               ) : (
                 <div className="w-full text-center">
-                  <span className={`inline-block px-4 py-2 rounded-lg text-sm font-bold ${selectedOT.status === 'approved' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
-                    }`}>
-                    ทำรายการเรียบร้อยแล้ว ({selectedOT.status === 'approved' ? 'อนุมัติ' : 'ไม่อนุมัติ'})
+                  <span className={`inline-block px-4 py-2 rounded-lg text-sm font-bold ${
+                    selectedOT.status === 'canceled' 
+                      ? 'bg-slate-100 text-slate-600 border border-slate-200' 
+                      : 'bg-rose-100 text-rose-700 border border-rose-200'
+                  }`}>
+                    {selectedOT.status === 'canceled' ? '↩️ ยกเลิกรายการแล้ว' : '❌ ไม่อนุมัติ'}
                   </span>
                 </div>
               )}

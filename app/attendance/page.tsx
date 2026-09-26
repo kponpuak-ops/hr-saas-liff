@@ -11,6 +11,9 @@ export default function AttendanceAdminPage() {
   const [otRequests, setOtRequests] = useState<any[]>([])
   const [companyId, setCompanyId] = useState<number | null>(null)
   
+  // 💡 State ใหม่: สำหรับเก็บข้อมูลใบลาที่อนุมัติแล้ว
+  const [approvedLeaves, setApprovedLeaves] = useState<any[]>([])
+  
   // State สำหรับ Dropdown พนักงานใน Modal
   const [usersList, setUsersList] = useState<any[]>([])
   
@@ -86,6 +89,14 @@ export default function AttendanceAdminPage() {
         .eq('status', 'approved')
       setOtRequests(otData || [])
 
+      // 💡 โหลดข้อมูลใบลาที่อนุมัติแล้วมาไว้เทียบ
+      const { data: leavesData } = await supabase
+        .from('leaves')
+        .select('id, user_id, start_date, end_date, leave_type, status')
+        .eq('company_id', userAuth.company_id)
+        .eq('status', 'approved')
+      setApprovedLeaves(leavesData || [])
+
       const { data: attendanceData, error } = await supabase
         .from('attendance')
         .select(`
@@ -103,6 +114,22 @@ export default function AttendanceAdminPage() {
       console.error('Error fetching data:', err.message)
     } finally {
       setLoading(false)
+    }
+  }
+
+  // 💡 ฟังก์ชันลบการลงเวลา
+  const handleDeleteAttendance = async (id: number, empName: string, dateStr: string) => {
+    const formattedDate = new Date(dateStr).toLocaleDateString('th-TH')
+    if (!confirm(`⚠️ ยืนยันการลบประวัติการลงเวลาของ "${empName}"\nในวันที่ ${formattedDate} ใช่หรือไม่?\n\n(หากลบแล้วข้อมูลจะหายไปจากตารางทันที)`)) return
+    
+    try {
+      const { error } = await supabase.from('attendance').delete().eq('id', id)
+      if (error) throw error
+      
+      alert('✅ ลบข้อมูลการลงเวลาเรียบร้อยแล้ว')
+      fetchData()
+    } catch (err: any) {
+      alert('เกิดข้อผิดพลาดในการลบ: ' + err.message)
     }
   }
 
@@ -279,7 +306,6 @@ export default function AttendanceAdminPage() {
     return match;
   });
 
-  // 💡 ประมวลผลข้อมูลสรุป (Summary) จากรายการที่กรองแล้ว
   const summaryData = filteredRecords.reduce((acc, record) => {
     acc.lateMins += record.late_minutes || 0;
     acc.earlyMins += record.early_leave_minutes || 0;
@@ -370,7 +396,7 @@ export default function AttendanceAdminPage() {
           </div>
         </div>
 
-        {/* กล่องตัวกรองค้นหา (Filter Bar) */}
+        {/* กล่องตัวกรองค้นหา */}
         <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-6 flex flex-col md:flex-row gap-4">
           <div className="flex-1">
             <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">🔍 ค้นหาพนักงาน</label>
@@ -418,7 +444,7 @@ export default function AttendanceAdminPage() {
           </div>
         </div>
 
-        {/* 💡 แถบสรุปข้อมูล (Dynamic Summary Bar) */}
+        {/* แถบสรุปข้อมูล */}
         {filteredRecords.length > 0 && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-center">
@@ -454,22 +480,31 @@ export default function AttendanceAdminPage() {
                   <th className="px-4 py-4 font-semibold text-center">รูปถ่ายยืนยัน</th>
                   <th className="px-4 py-4 font-semibold text-right text-rose-600">สาย / ออกก่อน / หักเงิน</th>
                   <th className="px-4 py-4 font-semibold text-right text-emerald-600">OT ที่ทำได้จริง</th>
+                  {/* 💡 เพิ่มหัวตาราง จัดการ */}
+                  <th className="px-4 py-4 font-semibold text-center">จัดการ</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {loading ? (
                   <tr>
-                    <td colSpan={7} className="text-center py-10 text-slate-500">กำลังโหลดข้อมูล...</td>
+                    <td colSpan={8} className="text-center py-10 text-slate-500">กำลังโหลดข้อมูล...</td>
                   </tr>
                 ) : filteredRecords.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="text-center py-10 text-slate-500">ไม่พบประวัติการลงเวลาตามที่ค้นหา</td>
+                    <td colSpan={8} className="text-center py-10 text-slate-500">ไม่พบประวัติการลงเวลาตามที่ค้นหา</td>
                   </tr>
                 ) : (
                   filteredRecords.map((record) => {
                     const otResult = calculateOTForRecord(record)
                     const distIn = calculateDistance(settings?.location_lat, settings?.location_lng, record.check_in_lat, record.check_in_lng)
                     const distOut = calculateDistance(settings?.location_lat, settings?.location_lng, record.check_out_lat, record.check_out_lng)
+
+                    // 💡 เช็กว่าวันลงเวลานี้ตรงกับวันลาที่อนุมัติแล้วหรือไม่
+                    const hasLeave = approvedLeaves.find(leave => 
+                      leave.user_id === record.user_id && 
+                      record.action_date >= leave.start_date && 
+                      record.action_date <= leave.end_date
+                    )
 
                     return (
                       <tr key={record.id} className="hover:bg-slate-50 transition">
@@ -489,11 +524,18 @@ export default function AttendanceAdminPage() {
                               )}
                             </div>
                             <div>
-                              <p className="font-medium text-slate-800">
+                              <p className="font-medium text-slate-800 flex items-center flex-wrap gap-2">
                                 {record.users?.first_name} {record.users?.last_name}
-                                {record.is_manual && <span className="ml-2 text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">HR แก้ไข</span>}
+                                {record.is_manual && <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">HR แก้ไข</span>}
                               </p>
                               <p className="text-xs text-slate-500">{record.users?.department ? `${record.users.department} • ` : ''}{record.users?.position || 'พนักงาน'}</p>
+                              
+                              {/* 💡 แสดงป้ายเตือนเมื่อมีการลาทับซ้อน */}
+                              {hasLeave && (
+                                <div className="mt-1 flex items-center gap-1 bg-rose-100 text-rose-700 px-2 py-0.5 rounded text-[10px] font-bold w-max shadow-sm border border-rose-200 animate-pulse">
+                                  ⚠️ มีใบลา ({hasLeave.leave_type})
+                                </div>
+                              )}
                             </div>
                           </div>
                         </td>
@@ -568,6 +610,17 @@ export default function AttendanceAdminPage() {
                           ) : (
                             <span className="text-slate-300 text-xs">-</span>
                           )}
+                        </td>
+                        
+                        {/* 💡 คอลัมน์ใหม่ จัดการข้อมูล (ปุ่มลบ) */}
+                        <td className="px-4 py-4 text-center">
+                          <button
+                            onClick={() => handleDeleteAttendance(record.id, `${record.users?.first_name} ${record.users?.last_name}`, record.action_date)}
+                            className="p-1.5 bg-rose-50 text-rose-500 hover:bg-rose-100 hover:text-rose-700 rounded-lg transition-colors border border-rose-100"
+                            title="ลบข้อมูลการลงเวลานี้ทิ้ง"
+                          >
+                            🗑️
+                          </button>
                         </td>
                       </tr>
                     )

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { supabase } from '../../lib/supabase'
+import { supabase } from '@/lib/supabase'
 
 export default function LeavesAdminPage() {
   const [leaves, setLeaves] = useState<any[]>([])
@@ -23,9 +23,10 @@ export default function LeavesAdminPage() {
     const { data: { session } } = await supabase.auth.getSession()
     if (!session) return
 
+    // 💡 ดึง auth_id มาด้วย เพื่อเอาไปใช้บันทึก Audit Log
     const { data: currentUser } = await supabase
       .from('users')
-      .select('id, company_id, role, department')
+      .select('id, company_id, role, department, auth_id') 
       .eq('auth_id', session.user.id)
       .single()
 
@@ -68,41 +69,74 @@ export default function LeavesAdminPage() {
     setIsLoading(false)
   }
 
-  const handleUpdateStatus = async (leaveId: number, baseStatus: 'approved' | 'rejected') => {
-    if (!confirm(`คุณต้องการ ${baseStatus === 'approved' ? 'อนุมัติ' : 'ไม่อนุมัติ'} รายการนี้ใช่หรือไม่?`)) return;
+  const handleUpdateStatus = async (leaveId: number, baseStatus: 'approved' | 'rejected' | 'canceled') => {
+    let confirmMsg = `คุณต้องการ ${baseStatus === 'approved' ? 'อนุมัติ' : baseStatus === 'canceled' ? 'ยกเลิก (และคืนโควตา)' : 'ไม่อนุมัติ'} รายการนี้ใช่หรือไม่?`
+    if (!confirm(confirmMsg)) return;
 
-    let finalStatus: string = baseStatus
-    let updateData: any = { status: finalStatus }
+    try {
+      // 💡 1. ดึงข้อมูลใบลาเดิมก่อนอัปเดต เพื่อเก็บลง Audit Log
+      const { data: oldLeaveData } = await supabase
+        .from('leaves')
+        .select('*')
+        .eq('id', leaveId)
+        .single();
 
-    if (currentUserInfo?.role === 'manager' && baseStatus === 'approved') {
-      finalStatus = 'manager_approved'
-      updateData = { status: finalStatus, manager_id: currentUserInfo.id }
-    } else if (currentUserInfo?.role === 'admin' && baseStatus === 'approved') {
-      updateData = { status: finalStatus, admin_id: currentUserInfo.id }
-    } else if (baseStatus === 'rejected') {
-      if (currentUserInfo?.role === 'manager') updateData.manager_id = currentUserInfo.id
-      if (currentUserInfo?.role === 'admin') updateData.admin_id = currentUserInfo.id
-    }
+      let finalStatus: string = baseStatus
+      let updateData: any = { status: finalStatus }
 
-    const { error } = await supabase
-      .from('leaves')
-      .update(updateData)
-      .eq('id', leaveId)
+      if (currentUserInfo?.role === 'manager' && baseStatus === 'approved') {
+        finalStatus = 'manager_approved'
+        updateData = { status: finalStatus, manager_id: currentUserInfo.id }
+      } else if (currentUserInfo?.role === 'admin' && baseStatus === 'approved') {
+        updateData = { status: finalStatus, admin_id: currentUserInfo.id }
+      } else if (baseStatus === 'rejected' || baseStatus === 'canceled') {
+        if (currentUserInfo?.role === 'manager') updateData.manager_id = currentUserInfo.id
+        if (currentUserInfo?.role === 'admin' || currentUserInfo?.role === 'super_admin') updateData.admin_id = currentUserInfo.id
+      }
 
-    if (error) {
-      alert('เกิดข้อผิดพลาดในการอัปเดตสถานะ')
-    } else {
-      fetch('/api/notify-leave', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: leaveId, status: finalStatus }),
-      }).catch((err) => console.error('Notification error:', err))
+      // 💡 2. อัปเดตสถานะใบลา
+      const { error } = await supabase
+        .from('leaves')
+        .update(updateData)
+        .eq('id', leaveId)
+
+      if (error) throw error;
+
+      // 💡 3. เขียนข้อมูลลง Audit Log ด้วยตัวเอง
+      if (oldLeaveData && currentUserInfo?.auth_id) {
+        const newLeaveData = { ...oldLeaveData, ...updateData };
+        const auditPayload = {
+          table_name: 'leaves',
+          action: 'UPDATE',
+          record_id: leaveId,
+          old_data: oldLeaveData,
+          new_data: newLeaveData,
+          changed_by: currentUserInfo.auth_id
+        };
+        await supabase.from('audit_logs').insert([auditPayload]);
+      }
+
+      // แจ้งเตือนเมื่อมีการอนุมัติหรือไม่อนุมัติ (ข้ามถ้าเป็นการกดยกเลิกทีหลัง)
+      if (finalStatus !== 'canceled') {
+          fetch('/api/notify-leave', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: leaveId, status: finalStatus }),
+          }).catch((err) => console.error('Notification error:', err))
+      }
 
       if (selectedLeave?.id === leaveId) {
         setSelectedLeave({ ...selectedLeave, status: finalStatus })
       }
+      
+      if (finalStatus === 'canceled') {
+          alert('✅ ยกเลิกใบลาและคืนโควตาเรียบร้อยแล้ว')
+      }
 
       fetchData()
+
+    } catch (err: any) {
+      alert('เกิดข้อผิดพลาดในการอัปเดตสถานะ: ' + err.message)
     }
   }
 
@@ -176,6 +210,7 @@ export default function LeavesAdminPage() {
             <option value="manager_approved">🟡 รอ HR อนุมัติ</option>
             <option value="approved">✅ อนุมัติแล้ว</option>
             <option value="rejected">❌ ไม่อนุมัติ</option>
+            <option value="canceled">↩️ ยกเลิกแล้ว</option>
           </select>
         </div>
       </div>
@@ -214,6 +249,7 @@ export default function LeavesAdminPage() {
                         {item.status === 'manager_approved' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-700">🟡 รอ HR อนุมัติ</span>}
                         {item.status === 'approved' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700">✅ อนุมัติแล้ว</span>}
                         {item.status === 'rejected' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-700">❌ ไม่อนุมัติ</span>}
+                        {item.status === 'canceled' && <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-600 border border-slate-200">↩️ ยกเลิก</span>}
                       </div>
 
                       <div className="mt-2.5 flex flex-col items-center gap-1 text-xs">
@@ -229,7 +265,7 @@ export default function LeavesAdminPage() {
                         )}
                         {item.admin_id && (
                           <div className="flex items-center gap-1.5 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">
-                            {item.status === 'rejected' ? (
+                            {item.status === 'rejected' || item.status === 'canceled' ? (
                               <span className="text-[10px]">❌</span>
                             ) : (
                               <span className="text-[10px]">✅</span>
@@ -338,7 +374,7 @@ export default function LeavesAdminPage() {
               </div>
             </div>
 
-            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 flex-wrap">
               {(selectedLeave.status === 'pending' || selectedLeave.status === 'manager_approved') ? (
                 <>
                   <button
@@ -354,11 +390,26 @@ export default function LeavesAdminPage() {
                     {currentUserInfo?.role === 'admin' ? '✅ อนุมัติขั้นสุดท้าย' : '✅ อนุมัติใบลา'}
                   </button>
                 </>
+              ) : selectedLeave.status === 'approved' ? (
+                <div className="w-full flex items-center justify-between">
+                  <span className="text-sm font-bold text-emerald-700 bg-emerald-100 px-3 py-1.5 rounded-lg border border-emerald-200">
+                    ✅ อนุมัติเรียบร้อย
+                  </span>
+                  <button
+                    onClick={() => handleUpdateStatus(selectedLeave.id, 'canceled')}
+                    className="px-4 py-2 bg-white border border-slate-300 text-slate-600 hover:bg-slate-100 hover:text-rose-600 hover:border-rose-300 rounded-lg text-sm font-bold transition-colors shadow-sm"
+                  >
+                    ↩️ ยกเลิกใบลา (คืนโควตา)
+                  </button>
+                </div>
               ) : (
                 <div className="w-full text-center">
-                  <span className={`inline-block px-4 py-2 rounded-lg text-sm font-bold ${selectedLeave.status === 'approved' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
-                    }`}>
-                    ทำรายการเรียบร้อยแล้ว ({selectedLeave.status === 'approved' ? 'อนุมัติ' : 'ไม่อนุมัติ'})
+                  <span className={`inline-block px-4 py-2 rounded-lg text-sm font-bold ${
+                    selectedLeave.status === 'canceled' 
+                      ? 'bg-slate-100 text-slate-600 border border-slate-200' 
+                      : 'bg-rose-100 text-rose-700 border border-rose-200'
+                  }`}>
+                    {selectedLeave.status === 'canceled' ? '↩️ ยกเลิกรายการแล้ว' : '❌ ไม่อนุมัติ'}
                   </span>
                 </div>
               )}

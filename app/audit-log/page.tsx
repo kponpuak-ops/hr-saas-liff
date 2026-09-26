@@ -15,7 +15,7 @@ export default function AuditLogPage() {
   const [filterAction, setFilterAction] = useState('all')
   const [recordLimit, setRecordLimit] = useState(100)
   
-  // 💡 State ใหม่ สำหรับตัวกรองวันที่
+  // State สำหรับตัวกรองวันที่
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
 
@@ -120,7 +120,10 @@ export default function AuditLogPage() {
     const map: Record<string, string> = {
       users: '👤 ข้อมูลพนักงาน',
       company_settings: '⚙️ ตั้งค่าองค์กร',
-      attendance: '📍 ประวัติการลงเวลา' 
+      attendance: '📍 ประวัติการลงเวลา',
+      leaves: '📝 ข้อมูลการลา',
+      ot_requests: '💰 คำขอ OT',
+      attendance_requests: '⏱️ คำขอปรับเวลา'
     }
     return map[tableName] || tableName
   }
@@ -154,7 +157,11 @@ export default function AuditLogPage() {
       is_manual: 'แก้ไขโดย HR (Manual)',
       user_id: 'รหัสพนักงาน',
       diligence_steps: 'ตั้งค่าเบี้ยขยัน (ขั้นบันได)',
-      status: 'สถานะพนักงาน',
+      status: 'สถานะ', // 💡 แก้จาก "สถานะพนักงาน" เป็น "สถานะ" เพื่อให้ใช้ร่วมกับใบลาได้
+      leave_type: 'ประเภทการลา',
+      start_date: 'วันที่เริ่มต้น',
+      end_date: 'วันที่สิ้นสุด',
+      reason: 'เหตุผล'
     }
     return map[field] || field
   }
@@ -172,10 +179,11 @@ export default function AuditLogPage() {
       )
     }
 
-    if (log.table_name === 'attendance') {
-      const actionDate = data.action_date || ''
+    // 💡 เพิ่มเงื่อนไขให้ดึงชื่อพนักงานมาแสดงสำหรับตารางใบลาและการขอแก้ไขเวลา
+    if (['attendance', 'leaves', 'ot_requests', 'attendance_requests'].includes(log.table_name)) {
       const targetUserId = data.user_id
       const targetUser = allUsers.find(u => u.id === targetUserId)
+      const targetDate = data.action_date || data.start_date || data.request_date || data.ot_date || ''
 
       return (
         <div className="mt-1">
@@ -184,9 +192,9 @@ export default function AuditLogPage() {
               👤 พนักงาน: {targetUser.first_name} {targetUser.last_name}
             </div>
           )}
-          {actionDate && (
+          {targetDate && (
             <div className="text-xs text-emerald-600 font-bold mt-0.5">
-              📅 วันที่: {new Date(actionDate).toLocaleDateString('th-TH')}
+              📅 วันที่: {new Date(targetDate).toLocaleDateString('th-TH')}
             </div>
           )}
         </div>
@@ -199,10 +207,15 @@ export default function AuditLogPage() {
  const formatVal = (v: any) => {
     if (v === 'active') return '🟢 ทำงานอยู่'
     if (v === 'inactive') return '🔴 พ้นสภาพ/ลาออก'
+    if (v === 'pending') return '⏳ รอตรวจสอบ'
+    if (v === 'manager_approved') return '🟡 รอ HR อนุมัติ'
+    if (v === 'approved') return '✅ อนุมัติแล้ว'
+    if (v === 'rejected') return '❌ ไม่อนุมัติ'
+    if (v === 'canceled') return '↩️ ยกเลิก'
+    
     if (v === null || v === undefined || v === '') return 'ว่าง'
     if (typeof v === 'boolean') return v ? 'ใช่ (เปิด)' : 'ไม่ (ปิด)'
     
-    // 💡 เพิ่มการตรวจสอบ Array สำหรับเบี้ยขยัน เพื่อจัดรูปแบบให้สวยงาม
     if (Array.isArray(v)) {
       return v.map((amt, idx) => `ขั้นที่ ${idx + 1}: ฿${amt}`).join(', ')
     }
@@ -215,18 +228,22 @@ export default function AuditLogPage() {
         return d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) + ' น.'
       }
     }
+    
+    if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)) {
+      const d = new Date(v)
+      if (!isNaN(d.getTime())) {
+        return d.toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' })
+      }
+    }
+
     return String(v)
   }
 
-  // ระบบกรองข้อมูล (Client-side Filtering)
+  // ระบบกรองข้อมูล
   const filteredLogs = logs.filter(log => {
-    // 1. กรองตามตาราง
     if (filterTable !== 'all' && log.table_name !== filterTable) return false;
-    
-    // 2. กรองตามการกระทำ
     if (filterAction !== 'all' && log.action !== filterAction) return false;
     
-    // 3. กรองตามคำค้นหา
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       const doerName = log.users ? `${log.users.first_name} ${log.users.last_name}`.toLowerCase() : '';
@@ -236,7 +253,7 @@ export default function AuditLogPage() {
       const data = log.new_data || log.old_data || {};
       if (log.table_name === 'users') {
         targetName = `${data.first_name || ''} ${data.last_name || ''}`.toLowerCase();
-      } else if (log.table_name === 'attendance') {
+      } else if (['attendance', 'leaves', 'ot_requests', 'attendance_requests'].includes(log.table_name)) {
         const targetUser = allUsers.find(u => u.id === data.user_id);
         if (targetUser) {
           targetName = `${targetUser.first_name} ${targetUser.last_name}`.toLowerCase();
@@ -248,10 +265,9 @@ export default function AuditLogPage() {
       }
     }
 
-    // 💡 4. กรองตามวันที่ (เปรียบเทียบจากวันที่สร้าง log)
     if (startDate || endDate) {
       const logDate = new Date(log.created_at);
-      logDate.setHours(0, 0, 0, 0); // รีเซ็ตเวลาเป็นเที่ยงคืนเพื่อเทียบแค่วันที่
+      logDate.setHours(0, 0, 0, 0); 
 
       if (startDate) {
         const start = new Date(startDate);
@@ -302,7 +318,6 @@ export default function AuditLogPage() {
              setSearchQuery('');
              setFilterAction('all');
              setFilterTable('all');
-             // 💡 ล้างค่าวันที่ตอนกดรีเฟรช
              setStartDate('');
              setEndDate('');
              fetchLogs();
@@ -313,9 +328,7 @@ export default function AuditLogPage() {
         </button>
       </div>
 
-      {/* 💡 อัปเดตโครงสร้างกล่องตัวกรอง ให้สวยงามและสมดุลขึ้น */}
       <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 mb-6 flex flex-col gap-4">
-        {/* แถวที่ 1: ค้นหา (เต็มความกว้าง) */}
         <div>
           <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">🔍 ค้นหา (ชื่อผู้แก้, เป้าหมาย)</label>
           <input 
@@ -327,7 +340,6 @@ export default function AuditLogPage() {
           />
         </div>
         
-        {/* แถวที่ 2: ตัวกรอง 4 ช่อง (แบ่งสัดส่วนเท่ากัน) */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
             <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">หมวดหมู่ข้อมูล</label>
@@ -339,6 +351,7 @@ export default function AuditLogPage() {
               <option value="all">ทั้งหมด</option>
               <option value="users">👤 ข้อมูลพนักงาน</option>
               <option value="attendance">📍 ประวัติการลงเวลา</option>
+              <option value="leaves">📝 ข้อมูลการลา</option>
               <option value="company_settings">⚙️ ตั้งค่าองค์กร</option>
             </select>
           </div>
@@ -415,7 +428,7 @@ export default function AuditLogPage() {
                         {log.action === 'UPDATE' && log.old_data && log.new_data && (
                           <div className="mt-2 pt-2 border-t border-slate-200/60 space-y-1.5">
                             {Object.keys(log.new_data).map(key => {
-                              if (['id', 'created_at', 'updated_at', 'auth_id', 'company_id', 'check_in_lat', 'check_in_lng', 'check_out_lat', 'check_out_lng', 'check_in_image', 'check_out_image'].includes(key)) return null
+                              if (['id', 'created_at', 'updated_at', 'auth_id', 'company_id', 'check_in_lat', 'check_in_lng', 'check_out_lat', 'check_out_lng', 'check_in_image', 'check_out_image', 'manager_id', 'admin_id'].includes(key)) return null
 
                               const oldVal = log.old_data[key]
                               const newVal = log.new_data[key]

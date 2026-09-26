@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { supabase } from '../../lib/supabase'
+import { supabase } from '@/lib/supabase'
 
 type BenefitItem = {
   name: string
@@ -24,7 +24,6 @@ export default function EmployeesPage() {
   const [leaveSummary, setLeaveSummary] = useState<any[]>([])
   const [isLoadingProfile, setIsLoadingProfile] = useState<boolean>(false)
 
-  // 💡 State ควบคุมสถานะและแท็บ
   const [search, setSearch] = useState('')
   const [filterType, setFilterType] = useState('all')
   const [activeTabStatus, setActiveTabStatus] = useState<'active' | 'inactive'>('active')
@@ -52,7 +51,7 @@ export default function EmployeesPage() {
     position: '',
     start_date: new Date().toISOString().split('T')[0],
     allow_remote_attendance: false,
-    status: 'active', // 💡 ฟิลด์ใหม่ สถานะพนักงาน
+    status: 'active',
   }
 
   const [formData, setFormData] = useState(initialFormState)
@@ -95,7 +94,6 @@ export default function EmployeesPage() {
 
     if (data) {
       setEmployees(data)
-      // 💡 นับโควต้าเฉพาะพนักงานที่ "กำลังทำงานอยู่ (active)" เท่านั้น
       const activeCount = data.filter(e => (e.status || 'active') === 'active').length
       setCompanyQuota({ 
         max: companyData?.max_employees || 0, 
@@ -125,7 +123,7 @@ export default function EmployeesPage() {
     try {
       const [leavesRes, typesRes] = await Promise.all([
         supabase.from('leaves').select('*').eq('user_id', emp.id),
-        supabase.from('leave_types').select('*')
+        supabase.from('leave_types').select('*').eq('company_id', emp.company_id)
       ])
 
       const leaves = leavesRes.data || []
@@ -149,8 +147,20 @@ export default function EmployeesPage() {
         const days = Math.ceil(Math.abs(end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1
 
         if (l.status === 'approved') summaryMap[l.leave_type].approved += days
-        if (l.status === 'pending') summaryMap[l.leave_type].pending += days
+        if (l.status === 'pending' || l.status === 'manager_approved') summaryMap[l.leave_type].pending += days
         if (l.status === 'rejected') summaryMap[l.leave_type].rejected += days
+      })
+
+      types.forEach((t: any) => {
+          if (!summaryMap[t.name]) {
+              summaryMap[t.name] = {
+                  name: t.name,
+                  max: t.max_paid_days || 0,
+                  approved: 0,
+                  pending: 0,
+                  rejected: 0
+              }
+          }
       })
 
       setLeaveSummary(Object.values(summaryMap))
@@ -259,7 +269,6 @@ export default function EmployeesPage() {
         fetchEmployees()
       }
     } else {
-      // 💡 ดึง Session เพื่อแนบ company_id (ป้องกันกรณีเป็นพนักงานใหม่)
       const { data: { session } } = await supabase.auth.getSession()
       const { data: currUser } = await supabase.from('users').select('company_id').eq('auth_id', session?.user.id).single()
       
@@ -274,7 +283,6 @@ export default function EmployeesPage() {
     setIsSubmitting(false)
   }
 
-  // 💡 เปลี่ยนจากลบถาวร (Hard Delete) เป็นให้ออก (Soft Delete)
   const handleResignEmployee = async (id: string, name: string) => {
     if (!confirm(`ยืนยันการตั้งค่าให้ "${name}" พ้นสภาพพนักงาน?\n\nข้อมูลประวัติและเงินเดือนเก่าจะยังอยู่ครบถ้วน แต่พนักงานจะไม่แสดงในรอบการประมวลผลเงินเดือนเดือนถัดไป และจะคืนสิทธิ์โควต้าพนักงานให้บริษัท`)) return
 
@@ -286,7 +294,6 @@ export default function EmployeesPage() {
     }
   }
 
-  // 💡 ดึงพนักงานกลับมาทำงาน
   const handleRestoreEmployee = async (id: string, name: string) => {
     if (companyQuota.current >= companyQuota.max) {
       alert(`⚠️ ไม่สามารถดึงกลับมาได้ เนื่องจากโควต้าเต็มแล้ว (${companyQuota.current}/${companyQuota.max} คน)`)
@@ -307,7 +314,6 @@ export default function EmployeesPage() {
     if (!error) fetchEmployees()
   }
 
-  // 💡 Filter Logic ที่รวมเงื่อนไขสถานะ (Active/Inactive)
   const filteredEmployees = employees.filter((emp) => {
     const fullName = `${emp.first_name || ''} ${emp.last_name || ''}`.toLowerCase()
     const matchesSearch = fullName.includes(search.toLowerCase()) || (emp.employee_id || '').toLowerCase().includes(search.toLowerCase())
@@ -393,7 +399,6 @@ export default function EmployeesPage() {
             <span className="text-xs text-slate-400">ID: {editingEmployeeId || 'ใหม่'}</span>
           </div>
 
-          {/* หมวดที่ 1 */}
           <div>
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">👤 ข้อมูลส่วนตัวและรูปถ่าย</h3>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
@@ -449,7 +454,6 @@ export default function EmployeesPage() {
             </div>
           </div>
 
-          {/* หมวดที่ 2 */}
           <div>
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">🏢 โครงสร้างองค์กร & สถานะ</h3>
             <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
@@ -494,7 +498,6 @@ export default function EmployeesPage() {
                   onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
                 />
               </div>
-              {/* 💡 ฟิลด์เพิ่มใหม่ในฟอร์ม: ตั้งค่าสถานะพนักงาน */}
               <div>
                 <label className="block text-xs font-bold text-slate-600 mb-1">สถานะพนักงาน</label>
                 <select
@@ -511,7 +514,6 @@ export default function EmployeesPage() {
             </div>
           </div>
 
-          {/* หมวดที่ 3 */}
           <div className="bg-indigo-50/50 p-5 rounded-2xl border border-indigo-100 space-y-4">
             <h3 className="text-xs font-bold text-indigo-900 uppercase tracking-wider">💳 ประเภทการจ้างงาน และ ค่าตอบแทนหลัก</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
@@ -557,7 +559,6 @@ export default function EmployeesPage() {
             </div>
           </div>
 
-          {/* หมวดที่ 4: ช่องทางการรับเงิน */}
           <div>
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">🏦 ข้อมูลบัญชีรับเงิน</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -587,7 +588,6 @@ export default function EmployeesPage() {
             </div>
           </div>
 
-          {/* หมวดที่ 5: สวัสดิการเพิ่มเติม */}
           <div>
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">🎁 สวัสดิการและเงินบวกประจำเดือน</h3>
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
@@ -620,7 +620,6 @@ export default function EmployeesPage() {
             </div>
           </div>
 
-          {/* หมวดที่ 6: ช่องทางการติดต่อ */}
           <div>
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">📞 ช่องทางการติดต่อ</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
@@ -652,7 +651,6 @@ export default function EmployeesPage() {
         </form>
       )}
 
-      {/* 💡 Tabs แบ่งกลุ่มพนักงาน */}
       <div className="flex border-b border-slate-200 gap-6">
         <button
           onClick={() => setActiveTabStatus('active')}
@@ -668,7 +666,6 @@ export default function EmployeesPage() {
         </button>
       </div>
 
-      {/* ตารางแสดงพนักงาน */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto p-6">
           <table className="w-full text-left border-collapse whitespace-nowrap">
@@ -768,7 +765,6 @@ export default function EmployeesPage() {
                           ✏️ แก้ไข
                         </button>
 
-                        {/* 💡 เปลี่ยนปุ่มและฟังก์ชันตามสถานะ */}
                         {activeTabStatus === 'active' ? (
                           <button
                             onClick={() => handleResignEmployee(emp.id, `${emp.first_name} ${emp.last_name}`)}
@@ -794,19 +790,145 @@ export default function EmployeesPage() {
         </div>
       </div>
 
-      {/* Modal Profile / Modal ภาพย่อ ถูกละไว้ตามโค้ดต้นฉบับ ไม่มีการเปลี่ยนแปลง */}
       {showProfileModal && selectedProfile && (
-         // ... (ใช้โค้ด Modal เดิมได้ทั้งหมด)
-         <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in" onClick={() => setShowProfileModal(false)}>
-           <div className="relative max-w-2xl w-full bg-white rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
-             {/* ... */}
-             <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-               <h2 className="text-lg font-bold text-slate-800">โปรไฟล์ & สิทธิ์การลา</h2>
-               <button onClick={() => setShowProfileModal(false)} className="text-slate-400 hover:text-slate-700 font-bold">✕ ปิด</button>
-             </div>
-             {/* ส่วนเนื้อหาคงเดิม */}
-           </div>
-         </div>
+        <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in" onClick={() => setShowProfileModal(false)}>
+          <div className="relative max-w-2xl w-full bg-white rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
+            <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <h2 className="text-lg font-bold text-slate-800">โปรไฟล์ & สิทธิ์การลา</h2>
+              <button onClick={() => setShowProfileModal(false)} className="text-slate-400 hover:text-slate-700 font-bold text-xl">&times;</button>
+            </div>
+
+            <div className="p-6 overflow-y-auto space-y-6">
+              {/* ข้อมูลทั่วไป */}
+              <div className="flex items-center gap-5 bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                <div className="w-20 h-20 rounded-full overflow-hidden bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-3xl border-2 border-indigo-50">
+                  {selectedProfile.avatar_url ? (
+                    <img src={selectedProfile.avatar_url} alt="Profile" className="w-full h-full object-cover" />
+                  ) : (
+                    selectedProfile.first_name?.[0]
+                  )}
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-slate-800">{selectedProfile.first_name} {selectedProfile.last_name}</h3>
+                  <div className="text-sm text-slate-500 font-medium mt-1">
+                    {selectedProfile.department || '-'} • {selectedProfile.position || 'พนักงาน'}
+                  </div>
+                  <div className="flex gap-2 mt-2">
+                    <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded text-[10px] font-bold">
+                      ID: {selectedProfile.employee_id || '-'}
+                    </span>
+                    <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-bold">
+                      เริ่มงาน: {new Date(selectedProfile.start_date).toLocaleDateString('th-TH')}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* ข้อมูลติดต่อ */}
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">📞 ข้อมูลการติดต่อ</h4>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-slate-400 text-xs block mb-0.5">อีเมล</span>
+                    <span className="font-medium text-slate-700">{selectedProfile.email || '-'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 text-xs block mb-0.5">เบอร์โทรศัพท์</span>
+                    <span className="font-medium text-slate-700">{selectedProfile.phone || '-'}</span>
+                  </div>
+                  <div className="col-span-2">
+                    <span className="text-slate-400 text-xs block mb-0.5">ที่อยู่</span>
+                    <span className="font-medium text-slate-700">{selectedProfile.address || '-'}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 💡 ข้อมูลทางการเงินและสวัสดิการ (เพิ่มใหม่) */}
+              <div className="bg-indigo-50/40 p-4 rounded-2xl border border-indigo-100/60">
+                 <h4 className="text-xs font-bold text-indigo-800 uppercase tracking-wider mb-3">💰 ข้อมูลค่าตอบแทนและสวัสดิการ</h4>
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                   <div>
+                     <span className="text-slate-500 text-xs block mb-0.5 font-semibold">ประเภทการจ้างงาน</span>
+                     <span className="font-bold text-slate-800">
+                       {selectedProfile.employment_type === 'daily' ? '📅 รายวัน' : selectedProfile.employment_type === 'probation' ? '⏳ ทดลองงาน' : selectedProfile.employment_type === 'contract' ? '📝 สัญญาจ้าง' : '👔 ประจำ'}
+                     </span>
+                   </div>
+                   <div>
+                     <span className="text-slate-500 text-xs block mb-0.5 font-semibold">
+                       {selectedProfile.employment_type === 'daily' ? 'ค่าจ้างรายวัน' : 'ฐานเงินเดือน'}
+                     </span>
+                     <span className="font-extrabold text-indigo-700 text-base">
+                       {Number(selectedProfile.employment_type === 'daily' ? selectedProfile.daily_rate : selectedProfile.base_salary).toLocaleString('th-TH')} <span className="text-xs text-indigo-500">บาท</span>
+                     </span>
+                   </div>
+                   <div className="col-span-1 md:col-span-2">
+                     <span className="text-slate-500 text-xs block mb-0.5 font-semibold">ช่องทางรับเงิน</span>
+                     <span className="font-medium text-slate-700">
+                       {selectedProfile.payment_method === 'cash' ? '💵 รับเงินสด' : `🏦 โอนเข้าบัญชี (${selectedProfile.bank_account || 'ไม่ระบุ'})`}
+                     </span>
+                   </div>
+                 </div>
+
+                 {/* สวัสดิการ */}
+                 <div className="mt-4 pt-3 border-t border-indigo-100/60">
+                   <span className="text-slate-500 text-xs block mb-2 font-semibold">รายการสวัสดิการประจำตัว</span>
+                   {selectedProfile.benefits && selectedProfile.benefits.length > 0 ? (
+                     <div className="flex flex-wrap gap-2">
+                       {selectedProfile.benefits.map((b: any, i: number) => (
+                         <span key={i} className="px-2.5 py-1 bg-white border border-indigo-200 text-indigo-700 rounded-lg text-xs font-bold shadow-sm">
+                           {b.name}: ฿{Number(b.amount).toLocaleString('th-TH')}
+                         </span>
+                       ))}
+                     </div>
+                   ) : (
+                     <span className="text-xs text-slate-400 italic">ไม่มีข้อมูลสวัสดิการพิเศษเพิ่มเติม</span>
+                   )}
+                 </div>
+              </div>
+
+              {/* สรุปสิทธิ์การลา */}
+              <div>
+                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">📝 สรุปการใช้วันลา</h4>
+                {isLoadingProfile ? (
+                  <div className="text-center py-6 text-slate-400 text-sm animate-pulse">กำลังโหลดข้อมูลวันลา...</div>
+                ) : leaveSummary.length === 0 ? (
+                  <div className="text-center py-6 bg-slate-50 rounded-xl border border-slate-100 text-slate-400 text-sm">
+                    ยังไม่มีข้อมูลประวัติการลา
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {leaveSummary.map((leave, idx) => (
+                      <div key={idx} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="font-bold text-indigo-700 text-sm">{leave.name}</span>
+                          <span className="text-xs font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded">
+                            โควต้า: {leave.max === 999 ? 'ไม่จำกัด' : `${leave.max} วัน`}
+                          </span>
+                        </div>
+                        <div className="flex items-end gap-2 mt-3">
+                          <div className="text-2xl font-black text-slate-800 leading-none">
+                            {leave.approved} <span className="text-xs font-bold text-slate-400">วัน</span>
+                          </div>
+                          <div className="text-[10px] text-slate-400 mb-0.5">(ใช้ไปแล้ว)</div>
+                        </div>
+                        {leave.pending > 0 && (
+                          <div className="text-xs text-amber-600 font-bold mt-2 bg-amber-50 px-2 py-1 rounded inline-block">
+                            ⏳ รออนุมัติอีก {leave.pending} วัน
+                          </div>
+                        )}
+                        {leave.max !== 999 && leave.approved > leave.max && (
+                          <div className="text-xs text-rose-600 font-bold mt-2 bg-rose-50 px-2 py-1 rounded border border-rose-100 inline-block">
+                            ⚠️ เกินโควต้า (หักเงิน)
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {previewImage && (
