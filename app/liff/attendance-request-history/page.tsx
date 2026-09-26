@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import liff from '@line/liff'
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
 
@@ -21,23 +22,29 @@ export default function LiffAttendanceRequestHistoryPage() {
   const fetchHistory = async () => {
     setLoading(true)
     try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) return
-
-      const { data: user } = await supabase
-        .from('users')
-        .select('id')
-        .eq('auth_id', session.user.id)
-        .single()
-
-      if (user) {
-        const { data } = await supabase
-          .from('attendance_requests')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('request_date', { ascending: false })
+      // 💡 เปลี่ยนมาใช้ liff ในการยืนยันตัวตน
+      await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID! })
+      
+      if (liff.isLoggedIn()) {
+        const profile = await liff.getProfile()
         
-        if (data) setRequestHistory(data)
+        const { data: user } = await supabase
+          .from('users')
+          .select('id')
+          .eq('line_user_id', profile.userId)
+          .single()
+
+        if (user) {
+          const { data } = await supabase
+            .from('attendance_requests')
+            .select('*')
+            .eq('user_id', user.id)
+            .order('request_date', { ascending: false })
+          
+          if (data) setRequestHistory(data)
+        }
+      } else {
+        liff.login()
       }
     } catch (error) {
       console.error(error)
