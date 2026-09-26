@@ -5,14 +5,12 @@ import liff from '@line/liff'
 import { supabase } from '@/lib/supabase'
 
 export default function ManagerApprovalsPage() {
-  // 💡 เพิ่ม 'time' เข้าไปใน Type ของ tab
   const [activeTab, setActiveTab] = useState<'leave' | 'ot' | 'time'>('leave')
   const [managerInfo, setManagerInfo] = useState<any>(null)
   const [workflow, setWorkflow] = useState<'admin_only' | 'manager_approval'>('admin_only')
   
   const [pendingLeaves, setPendingLeaves] = useState<any[]>([])
   const [pendingOTs, setPendingOTs] = useState<any[]>([])
-  // 💡 เพิ่ม State สำหรับเก็บคำขอแก้เวลา
   const [pendingTime, setPendingTime] = useState<any[]>([])
   
   const [isLoading, setIsLoading] = useState(true)
@@ -74,7 +72,6 @@ export default function ManagerApprovalsPage() {
       .in('status', ['pending', 'manager_approved'])
       .order('created_at', { ascending: false })
 
-    // 💡 ดึงข้อมูลคำขอแก้ไขเวลา
     const timeQuery = supabase
       .from('attendance_requests')
       .select(`*, users!attendance_requests_user_id_fkey!inner(first_name, last_name, department, role, company_id)`) 
@@ -118,7 +115,6 @@ export default function ManagerApprovalsPage() {
     let updateData: any = { status: newStatus }
     const isAdmin = managerInfo.role === 'admin' || managerInfo.role === 'super_admin'
 
-    // บันทึกชื่อผู้อนุมัติตาม Role
     if (managerInfo.role === 'manager' && action === 'approve') {
       newStatus = 'manager_approved'
       updateData = { status: newStatus, manager_id: managerInfo.id }
@@ -133,18 +129,15 @@ export default function ManagerApprovalsPage() {
     const apiEndpoint = type === 'leave' ? '/api/notify-leave' : type === 'ot' ? '/api/notify-ot' : '/api/notify-attendance'
 
     try {
-      // 💡 ลอจิกพิเศษ: หาก HR/Admin กดอนุมัติ "แก้เวลา" ผ่านมือถือ ต้องอัปเดตเวลาด้วย
       if (type === 'time' && isAdmin && action === 'approve') {
         const req = pendingTime.find(r => r.id === id)
         
         if (req) {
-          // ฟังก์ชันแปลงเวลา
           const createTimestamp = (dateStr: string, timeStr: string) => {
             const time = timeStr.length === 5 ? `${timeStr}:00` : timeStr
             return `${dateStr}T${time}+07:00`
           }
 
-          // 💡 ใช้ .maybeSingle() แทน .single() เพื่อป้องกัน Error กรณีไม่เคยมีบันทึกเวลาของวันนั้น
           const { data: existingAtt, error: fetchErr } = await supabase
             .from('attendance')
             .select('id')
@@ -155,9 +148,10 @@ export default function ManagerApprovalsPage() {
           if (fetchErr) throw new Error('ตรวจสอบข้อมูลเวลาเดิมไม่สำเร็จ: ' + fetchErr.message)
 
           let dbError;
+          let targetAttId = null;
 
           if (existingAtt) {
-            // อัปเดตข้อมูลเดิม
+            targetAttId = existingAtt.id;
             const payload: any = { is_manual: true }
             if (req.check_in_time) payload.check_in_time = createTimestamp(req.request_date, req.check_in_time)
             if (req.check_out_time) payload.check_out_time = createTimestamp(req.request_date, req.check_out_time)
@@ -165,7 +159,6 @@ export default function ManagerApprovalsPage() {
             const { error } = await supabase.from('attendance').update(payload).eq('id', existingAtt.id)
             dbError = error
           } else {
-            // สร้างข้อมูลใหม่ของวันนั้น
             const payload: any = {
               company_id: req.company_id, 
               user_id: req.user_id, 
@@ -175,21 +168,28 @@ export default function ManagerApprovalsPage() {
             if (req.check_in_time) payload.check_in_time = createTimestamp(req.request_date, req.check_in_time)
             if (req.check_out_time) payload.check_out_time = createTimestamp(req.request_date, req.check_out_time)
             
-            const { error } = await supabase.from('attendance').insert([payload])
+            const { data: newAtt, error } = await supabase.from('attendance').insert([payload]).select().single()
             dbError = error
+            if (newAtt) targetAttId = newAtt.id;
           }
 
-          // 💡 ดักจับ Error ตรงนี้ ถ้าบันทึกไม่ลง จะได้ไม่เปลี่ยนสถานะเป็นอนุมัติ
           if (dbError) throw new Error('ปรับปรุงเวลาในฐานข้อมูลไม่สำเร็จ: ' + dbError.message)
+
+          // 💡 หัวใจสำคัญ: ตามไปอัปเดตคนแก้ใน Audit Log ที่ Trigger เพิ่งสร้างให้
+          if (targetAttId && managerInfo.auth_id) {
+            await supabase.from('audit_logs')
+              .update({ changed_by: managerInfo.auth_id })
+              .eq('table_name', 'attendance')
+              .eq('record_id', targetAttId)
+              .is('changed_by', null)
+          }
         }
       }
 
-      // อัปเดตสถานะคำขอขั้นสุดท้าย
       const { error: updateReqErr } = await supabase.from(table).update(updateData).eq('id', id)
       
       if (updateReqErr) throw new Error('อัปเดตสถานะคำขอไม่สำเร็จ: ' + updateReqErr.message)
 
-      // แจ้งเตือน LINE และลบออกจากหน้าจอ
       fetch(apiEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -203,7 +203,6 @@ export default function ManagerApprovalsPage() {
       alert('✅ ดำเนินการและอัปเดตข้อมูลเรียบร้อยแล้ว')
 
     } catch (err: any) {
-      // 💡 แสดง Error ให้ชัดเจนแทนการแอบพัง
       alert('เกิดข้อผิดพลาด: ' + err.message)
     } finally {
       setIsProcessing(null)
@@ -235,7 +234,6 @@ export default function ManagerApprovalsPage() {
         </button>
       </div>
 
-      {/* 💡 แท็บเลือกประเภทคำขอ เปลี่ยนเป็น 3 แท็บ */}
       <div className="flex bg-slate-200/50 p-1 rounded-xl mb-4 overflow-x-auto whitespace-nowrap">
         <button onClick={() => setActiveTab('leave')} className={`flex-1 min-w-[80px] py-2 px-2 text-xs font-bold rounded-lg transition-all ${activeTab === 'leave' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}>
           📝 ใบลา ({pendingLeaves.length})
@@ -310,7 +308,7 @@ export default function ManagerApprovalsPage() {
           )
         )}
 
-        {/* 💡 --- ส่วนของ ขอปรับเวลาทำงาน --- */}
+        {/* --- ส่วนของ ขอปรับเวลาทำงาน --- */}
         {activeTab === 'time' && (
           pendingTime.length === 0 ? <p className="text-center text-slate-400 py-8 font-medium">ไม่มีคำขอปรับเวลาที่รออนุมัติ</p> : (
             pendingTime.map(timeReq => (
