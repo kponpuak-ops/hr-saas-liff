@@ -63,9 +63,9 @@ export default function LeaveHistoryPage() {
     ? leaves.filter(leave => leave.start_date.startsWith(filterMonth) || leave.end_date.startsWith(filterMonth))
     : leaves
 
-  // ฟังก์ชันสรุปข้อมูลการลาเฉพาะที่เคยยื่นในเดือนที่เลือก
+  // 💡 ฟังก์ชันสรุปข้อมูลการลา (อัปเดตให้รองรับสถานะ canceled)
   const calculateLeaveSummary = () => {
-    const summary: Record<string, { approved: number; pending: number; rejected: number }> = {}
+    const summary: Record<string, { approved: number; pending: number; rejected: number; canceled: number }> = {}
 
     filteredLeaves.forEach(leave => {
       const start = new Date(leave.start_date)
@@ -73,31 +73,36 @@ export default function LeaveHistoryPage() {
       const diffDays = Math.ceil(Math.abs(end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1 
 
       if (!summary[leave.leave_type]) {
-        summary[leave.leave_type] = { approved: 0, pending: 0, rejected: 0 }
+        summary[leave.leave_type] = { approved: 0, pending: 0, rejected: 0, canceled: 0 }
       }
 
       if (leave.status === 'approved') summary[leave.leave_type].approved += diffDays
       if (leave.status === 'pending' || leave.status === 'manager_approved') summary[leave.leave_type].pending += diffDays
       if (leave.status === 'rejected') summary[leave.leave_type].rejected += diffDays
+      if (leave.status === 'canceled') summary[leave.leave_type].canceled += diffDays // 💡 นับยอดที่ถูกยกเลิก
     })
 
     return summary
   }
 
+  // 💡 อัปเดตสีของป้ายให้รองรับ canceled
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'approved': return 'bg-emerald-100 text-emerald-700 border-emerald-200'
       case 'manager_approved': return 'bg-blue-100 text-blue-700 border-blue-200'
       case 'rejected': return 'bg-rose-100 text-rose-700 border-rose-200'
+      case 'canceled': return 'bg-slate-100 text-slate-600 border-slate-200' // สีเทาสำหรับยกเลิก
       default: return 'bg-amber-100 text-amber-700 border-amber-200'
     }
   }
 
+  // 💡 อัปเดตข้อความป้ายให้รองรับ canceled
   const getStatusText = (status: string) => {
     switch (status) {
       case 'approved': return '✅ อนุมัติแล้ว'
       case 'manager_approved': return '🟡 รอ HR อนุมัติ'
       case 'rejected': return '❌ ไม่อนุมัติ'
+      case 'canceled': return '↩️ ถูกยกเลิก' // ข้อความแสดงให้พนักงานทราบว่ายกเลิกแล้ว
       default: return '⏳ รอดำเนินการ'
     }
   }
@@ -135,7 +140,7 @@ export default function LeaveHistoryPage() {
             </div>
         )}
 
-        {/* สรุปข้อมูลการลา (แสดงเฉพาะที่เคยยื่นในเดือนที่เลือก) */}
+        {/* สรุปข้อมูลการลา */}
         {!errorMsg && summaryKeys.length > 0 && (
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
             <h2 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">📊 สรุปการยื่นใบลาของคุณ (เดือนที่เลือก)</h2>
@@ -149,6 +154,8 @@ export default function LeaveHistoryPage() {
                       {stats.approved > 0 && <span className="text-emerald-700 font-bold bg-emerald-100 px-2 py-1 rounded-md">✅ อนุมัติ: {stats.approved} วัน</span>}
                       {stats.pending > 0 && <span className="text-amber-700 font-bold bg-amber-100 px-2 py-1 rounded-md">⏳ รอตรวจสอบ: {stats.pending} วัน</span>}
                       {stats.rejected > 0 && <span className="text-rose-700 font-bold bg-rose-100 px-2 py-1 rounded-md">❌ ไม่อนุมัติ: {stats.rejected} วัน</span>}
+                      {/* 💡 แสดงสรุปยอดที่ถูกยกเลิก (ถ้ามี) */}
+                      {stats.canceled > 0 && <span className="text-slate-600 font-bold bg-slate-200 px-2 py-1 rounded-md">↩️ ยกเลิกแล้ว: {stats.canceled} วัน</span>}
                     </div>
                   </div>
                 )
@@ -171,19 +178,22 @@ export default function LeaveHistoryPage() {
             {filteredLeaves.map((leave) => (
               <div key={leave.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 space-y-2 relative overflow-hidden">
                 <div className="flex justify-between items-start">
-                  <span className="font-bold text-slate-800">{leave.leave_type}</span>
+                  <span className={`font-bold ${leave.status === 'canceled' ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
+                    {leave.leave_type}
+                  </span>
+                  {/* 💡 นำสถานะใหม่มาแสดงที่ป้าย */}
                   <span className={`text-[10px] font-bold px-2 py-1 rounded-md border ${getStatusColor(leave.status)}`}>
                     {getStatusText(leave.status)}
                   </span>
                 </div>
                 
-                <div className="text-xs text-slate-500 flex flex-col gap-1">
+                <div className={`text-xs flex flex-col gap-1 ${leave.status === 'canceled' ? 'text-slate-400' : 'text-slate-500'}`}>
                   <div className="flex items-center gap-1.5">
                     <span className="text-slate-400">📅</span> 
                     {new Date(leave.start_date).toLocaleDateString('th-TH')} - {new Date(leave.end_date).toLocaleDateString('th-TH')}
                   </div>
                   {leave.reason && (
-                    <div className="flex items-start gap-1.5 mt-1 bg-slate-50 p-2 rounded-lg">
+                    <div className={`flex items-start gap-1.5 mt-1 p-2 rounded-lg ${leave.status === 'canceled' ? 'bg-slate-100' : 'bg-slate-50'}`}>
                       <span className="text-slate-400">📝</span>
                       <span className="italic">{leave.reason}</span>
                     </div>

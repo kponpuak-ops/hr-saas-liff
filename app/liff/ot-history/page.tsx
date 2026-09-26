@@ -78,7 +78,6 @@ export default function OTHistoryPage() {
     
     if (actualHours <= 0) return 0
 
-    // 💡 จ่ายตามเวลาทำจริง (เศษนาทีเป็นทศนิยม) แต่สูงสุดไม่เกินที่ขออนุมัติไว้
     const validHours = Math.min(reqHours, actualHours)
 
     return validHours
@@ -88,6 +87,7 @@ export default function OTHistoryPage() {
     ? history.filter(item => item.request_date.startsWith(filterMonth))
     : history
 
+  // 💡 อัปเดตฟังก์ชันสรุปข้อมูล OT (เพิ่มสถานะ canceled)
   const otSummary = filteredHistory.reduce((acc, curr) => {
     const reqHrs = calculateRequestedHours(curr.start_time, curr.end_time)
     
@@ -98,9 +98,11 @@ export default function OTHistoryPage() {
       acc.pending += reqHrs
     } else if (curr.status === 'rejected') {
       acc.rejected += reqHrs
+    } else if (curr.status === 'canceled') {
+      acc.canceled += reqHrs // 💡 นับยอดชั่วโมงที่ถูกยกเลิก
     }
     return acc
-  }, { approvedReq: 0, actualDone: 0, pending: 0, rejected: 0 })
+  }, { approvedReq: 0, actualDone: 0, pending: 0, rejected: 0, canceled: 0 })
 
   if (isLoading) return <div className="p-6 text-center text-slate-500 font-medium">กำลังโหลด...</div>
 
@@ -143,10 +145,12 @@ export default function OTHistoryPage() {
             </div>
           </div>
           
-          {(otSummary.pending > 0 || otSummary.rejected > 0) && (
-            <div className="flex gap-2 mt-2">
+          {(otSummary.pending > 0 || otSummary.rejected > 0 || otSummary.canceled > 0) && (
+            <div className="flex flex-wrap gap-2 mt-2">
               {otSummary.pending > 0 && <span className="px-2 py-1 rounded-md text-[10px] font-bold bg-amber-100 text-amber-700">⏳ รอตรวจสอบ: {otSummary.pending.toFixed(1)} ชม.</span>}
               {otSummary.rejected > 0 && <span className="px-2 py-1 rounded-md text-[10px] font-bold bg-rose-100 text-rose-700">❌ ไม่อนุมัติ: {otSummary.rejected.toFixed(1)} ชม.</span>}
+              {/* 💡 แสดงสรุปยอดชั่วโมงที่ถูกยกเลิก (ถ้ามี) */}
+              {otSummary.canceled > 0 && <span className="px-2 py-1 rounded-md text-[10px] font-bold bg-slate-200 text-slate-600">↩️ ยกเลิก: {otSummary.canceled.toFixed(1)} ชม.</span>}
             </div>
           )}
         </div>
@@ -166,7 +170,8 @@ export default function OTHistoryPage() {
                   <div className="flex justify-between items-start">
                     <div>
                       <div className="text-xs font-bold text-slate-400 mb-0.5">วันที่ทำ OT</div>
-                      <div className="text-sm font-bold text-slate-800">
+                      {/* 💡 ถ้าถูกยกเลิก ให้ขีดฆ่าวันที่และทำสีเทา */}
+                      <div className={`text-sm font-bold ${item.status === 'canceled' ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
                         {new Date(item.request_date).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' })}
                       </div>
                     </div>
@@ -175,13 +180,15 @@ export default function OTHistoryPage() {
                       {item.status === 'manager_approved' && <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-blue-100 text-blue-700">🟡 รอ HR อนุมัติ</span>}
                       {item.status === 'approved' && <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-emerald-100 text-emerald-700">✅ อนุมัติ</span>}
                       {item.status === 'rejected' && <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-rose-100 text-rose-700">❌ ไม่อนุมัติ</span>}
+                      {/* 💡 เพิ่มป้ายแสดงสถานะยกเลิก */}
+                      {item.status === 'canceled' && <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">↩️ ถูกยกเลิก</span>}
                     </div>
                   </div>
                   
                   <div className="grid grid-cols-2 gap-4 border-t border-slate-50 pt-3">
                     <div>
                       <div className="text-[10px] font-bold text-slate-400 mb-0.5">เวลาที่ขอ (รวมชั่วโมง)</div>
-                      <div className="text-sm font-bold text-indigo-600">
+                      <div className={`text-sm font-bold ${item.status === 'canceled' ? 'text-slate-400' : 'text-indigo-600'}`}>
                         {item.start_time.substring(0, 5)} - {item.end_time.substring(0, 5)} น.
                         <span className="block text-xs mt-0.5">({reqHrs.toFixed(1)} ชม.)</span>
                       </div>
@@ -197,7 +204,7 @@ export default function OTHistoryPage() {
                   </div>
 
                   {item.reason && (
-                    <div className="text-xs text-slate-600 bg-slate-50 p-2.5 rounded-lg border border-slate-100 mt-1">
+                    <div className={`text-xs p-2.5 rounded-lg border mt-1 ${item.status === 'canceled' ? 'bg-slate-100 border-slate-200 text-slate-400' : 'bg-slate-50 border-slate-100 text-slate-600'}`}>
                       <span className="font-bold text-slate-500">เหตุผล: </span>{item.reason}
                     </div>
                   )}
